@@ -1,0 +1,92 @@
+prefix: "&8[&bBuildFlight&8] &r"
+
+bossbar-title: "&e⚡ 建筑飞行模式 &7| &f剩余能量: &a{energy} &f秒"
+
+gui-title: "&8建筑飞行 &7| &f能量面板"
+
+gui-energy-name: "&e⚡ 当前能量"
+gui-energy-lore:
+  - "&7剩余能量: &a{energy} &7点"
+  - "&7默认 1 点 = 1 秒建筑飞行"
+  - "&7每秒消耗: &f{consume} &7点"
+  - "&7血条基准: &f{max} &7点"
+  - "&7状态: {status}"
+
+gui-toggle-on-name: "&c&l关闭建筑飞行"
+gui-toggle-on-lore:
+  - "&7建筑飞行模式: &a已开启"
+  - "&7剩余能量: &a{energy} &7点"
+  - "&8双击空格可收起飞行并平稳降落"
+  - "&7点击关闭建筑飞行"
+  - "&7离地关闭时会自动获得缓降保护"
+
+gui-toggle-off-name: "&a&l开启建筑飞行"
+gui-toggle-off-lore:
+  - "&7当前能量: &a{energy} &7点"
+  - "&7点击开启建筑飞行"
+  - "&7能量不足或战斗冷却中将拒绝开启"
+
+gui-deposit-all-name: "&a&l一键存入全部材料"
+gui-deposit-all-lore:
+  - "&7扫描背包，将所有配置允许的材料"
+  - "&7一次性兑换为飞行能量"
+  - "&8未配置的物品不会被触碰"
+  - ""
+  - "&f点击 &7执行"
+
+gui-material-name: "&e{material} &7| &a{points} &7点/件"
+gui-material-lore:
+  - "&7背包拥有: &f{have} &7件"
+  - "&7每件兑换: &a{points} &7点"
+  - ""
+  - "&f左键 &7存入全部"
+  - "&f右键 &7存入 1 件"
+  - "&fShift+左键 &7存入 64 件"
+
+gui-loading-name: "&7能量数据加载中..."
+gui-loading-lore:
+  - "&7请稍等片刻后重新打开面板"
+
+gui-no-materials-name: "&c未配置可兑换材料"
+gui-no-materials-lore:
+  - "&7请在 config.yml 的"
+  - "&7exchange-materials 中添加材料"
+
+gui-more-name: "&e材料列表未完全显示"
+gui-more-lore:
+  - "&7已配置 &f{total} &7种材料"
+  - "&7面板仅显示前 &f{shown} &7种"
+
+status-loading: "&7数据加载中"
+status-failed: "&c数据加载失败"
+status-flying: "&a飞行中"
+status-standby: "&e待机（可再次双击起飞）"
+status-combat: "&c战斗冷却 {seconds}s"
+status-idle: "&7未开启"
+
+flight-on: "&a已开启建筑飞行，剩余能量 &e{energy} &a点。"
+flight-off: "&7已关闭建筑飞行。"
+flight-exhausted: "&c能量耗尽，建筑飞行已自动关闭！"
+fall-protection: "&e已启用缓降保护 &7({seconds} 秒)，落地后自动解除。"
+combat-interrupted: "&c战斗打断了建筑飞行！&7{seconds} 秒内无法再次开启。"
+combat-cooldown: "&c战斗冷却中，&7还需 &e{seconds} &7秒。"
+no-energy: "&c能量不足，请先存入材料。"
+no-materials: "&c配置中没有可兑换材料。"
+deposit-none: "&7背包中没有可兑换的材料。"
+deposit-none-material: "&7背包中没有 &f{material} &7。"
+deposit-success: "&a已存入 &f{items} &a件 &f{material}&a，获得 &e{points} &a点能量（当前 &e{energy}&a）。"
+deposit-all-success: "&a已存入 &f{items} &a件材料，获得 &e{points} &a点能量（当前 &e{energy}&a）。"
+deposit-failed: "&c存入失败，物品已退回背包，请重试。"
+data-loading: "&7能量数据加载中，请稍后再试。"
+data-failed: "&c能量数据加载失败，请联系管理员。"
+world-disabled: "&c当前世界 &f{world} &c禁止使用建筑飞行。"
+creative-no-need: "&7创造/旁观模式无需消耗建筑飞行能量。"
+internal-error: "&c飞行任务启动失败，请重试或联系管理员。"
+player-only: "&c该指令只能由玩家执行。"
+reload-success: "&a配置与消息已重载。"
+reload-failed: "&c重载失败: &f{error}"
+
+help:
+  - "&b&lBuildFlight &7- 建筑飞行"
+  - "&f/bflight &7或 &f/bf &7- 打开操作面板"
+  - "&f/bflight reload &7- 重载配置（管理员）"

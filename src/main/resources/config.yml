@@ -1,0 +1,53 @@
+# ============================================================
+# BuildFlight - 建筑飞行
+# 1 点能量 = 1 秒建筑飞行
+# ============================================================
+
+# BossBar 能量条
+bossbar:
+  # PINK, BLUE, RED, GREEN, YELLOW, PURPLE, WHITE
+  color: "YELLOW"
+  # SOLID, SEGMENTED_6, SEGMENTED_10, SEGMENTED_12, SEGMENTED_20
+  style: "SOLID"
+  # 血条 100% 对应的能量点数（只影响显示比例，不是能量上限）
+  max-energy-reference: 3600
+
+# 战斗打断
+combat:
+  # 受到实体攻击或主动攻击实体时，立即中断飞行
+  cancel-on-damage: true
+  # 中断后禁止再次开启飞行的秒数
+  cooldown-seconds: 10
+
+# 能量耗尽 / 主动关闭飞行后的缓降保护秒数
+fall-protection-seconds: 10
+
+# 这些世界禁止使用建筑飞行
+disabled-worlds:
+  - "world_the_end"
+
+# 每秒消耗的能量点数
+energy:
+  consume-per-second: 1.0
+
+# 数据保存
+storage:
+  # 缓存自动落库间隔（秒）
+  auto-save-seconds: 30
+  # DatabasePlayer 的 SQLite 文件名（位于插件数据目录）
+  # 修改文件名后需要重启服务器才会切换到新数据库
+  database-file: "data.db"
+
+# 物品/方块兑换能量表
+# 格式一（推荐）：材料枚举名: 每件提供的能量点数
+# 格式二：支持单独指定 material 与 points，便于使用别名键
+#   DIAMOND:
+#     material: DIAMOND
+#     points: 60
+exchange-materials:
+  DIAMOND: 60
+  EMERALD: 30
+  GOLD_INGOT: 15
+  NETHERITE_INGOT: 720
+  NETHERITE_BLOCK: 6800
+  OBSIDIAN: 10
