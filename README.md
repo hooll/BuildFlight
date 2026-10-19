@@ -1,6 +1,6 @@
 # BuildFlight
 
-基于 **Kotlin 2.x + TabooLib 6.x** 的 Minecraft 建筑飞行插件，面向 **Paper 1.20.x ~ 1.21.x**，并为 **Folia** 的区域线程模型做了专门处理。
+基于 **Kotlin 2.x + TabooLib 6.x** 的 Minecraft 建筑飞行插件，目标版本为 **Minecraft / Paper 26.3**，并为 **Folia** 的区域线程模型做了专门处理。编译基线为 Paper API 1.20.4，插件只使用跨版本稳定的 Bukkit API。
 
 玩家通过 GUI 把背包中的材料兑换为“飞行能量”，再在同一个 GUI 中开启/关闭建筑飞行。飞行期间使用独立 BossBar 显示剩余能量，能量耗尽时自动关闭飞行并给予缓降与落地前摔落免伤。
 
@@ -23,9 +23,24 @@
 
 ---
 
-## 构建
+## 兼容性
 
-要求 **JDK 21**（项目目标字节码为 Java 17，可在 Java 21 服务端运行）：
+| 环境 | 状态 |
+|---|---|
+| Paper 26.3（build 206，Java 25） | 已实机启动验证：插件成功启用，`config.yml` / `messages.yml` / `data.db` 正常生成 |
+| Paper API 26.3 | 已逐项核对本插件调用的 Bukkit / Folia 接口签名 |
+| Folia / Lophine 26.3 | 已实现区域调度并通过编译，未在真机验证 |
+| 1.20.4 ~ 1.21.x | 编译基线，未做回归测试 |
+| 更老版本 | 不支持；字节码为 Java 17，服务端需 Java 17+ |
+
+- 兼容性核对覆盖 `Player#isOnGround`、`setAllowFlight`、`BossBar`、`PotionEffectType.SLOW_FALLING`、`EntityScheduler` 等实际调用的接口。
+- 生成的 `plugin.yml` 自带 `api-version: 1.13` 与 `folia-supported: true`。
+- 首次启动时 TabooLib 会从远程仓库下载运行时模块与语言文件，服务器需要能访问对应仓库；受限网络下可能卡在这一步。
+- 不承诺“全版本通用”：大版本之间仍可能出现 API 移除或行为变化，升级服务端后请先在测试服加载。
+
+---
+
+要求 **JDK 21** 构建（项目字节码为 Java 17，服务端需要 Java 17+；26.3 实测使用 Java 25）：
 
 ```bash
 ./gradlew build
@@ -171,7 +186,9 @@ exchange-materials:
 
 ## 已知限制
 
-- 本机没有可运行的 Paper/Folia 服务端，因此**未做真机进服验证**；已完成的验证是 Kotlin 编译、Gradle 打包、配置/消息键静态校验与打包内容检查。
+- 已在本地 **Paper 26.3（build 206）+ Java 25** 启动验证：插件正常启用，配置文件与 SQLite 正常生成；但未做真人进服、GUI 点击与飞行手感的交互测试。
+- 未在 **Folia / Lophine 26.3** 实机验证；Folia 调度路径目前只有代码审查与编译保证。
+- 未做 1.20.4 ~ 1.21.x 的版本回归；这些版本仅作为编译基线。
 - Folia 在插件 `disable` 阶段无法保证再向各区域线程投递任务；此时 `BossBar` 采用 `removeAll()` 兜底清理，飞行状态由服务端关闭流程回收。
 - 摔落保护标记未持久化（仅本次在线会话有效），但单次保护有 `fall-protection-seconds + 5` 秒的硬性上限，不会无限免伤；战斗冷却随能量一起写入数据库，重连后仍然生效。
 - 兑换只扫描主背包 36 格，不处理副手、盔甲槽与光标物品。
