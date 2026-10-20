@@ -2,6 +2,7 @@ package cn.stingcraft.buildflight.listener
 
 import cn.stingcraft.buildflight.manager.EnergyManager
 import cn.stingcraft.buildflight.manager.FlightManager
+import cn.stingcraft.buildflight.ui.ExchangeMenu
 import org.bukkit.event.player.PlayerChangedWorldEvent
 import org.bukkit.event.entity.PlayerDeathEvent
 import org.bukkit.event.player.PlayerGameModeChangeEvent
@@ -24,6 +25,7 @@ object PlayerListener {
 
     @SubscribeEvent
     fun onQuit(event: PlayerQuitEvent) {
+        ExchangeMenu.clearSession(event.player)
         FlightManager.handleQuit(event.player)
         EnergyManager.unload(event.player)
     }

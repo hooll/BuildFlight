@@ -9,6 +9,7 @@ import cn.stingcraft.buildflight.listener.PlayerListener
 import cn.stingcraft.buildflight.manager.BossBarManager
 import cn.stingcraft.buildflight.manager.EnergyManager
 import cn.stingcraft.buildflight.manager.FlightManager
+import cn.stingcraft.buildflight.ui.ExchangeMenu
 import org.bukkit.Bukkit
 import taboolib.common.platform.Plugin
 import taboolib.common.platform.function.info
@@ -60,6 +61,8 @@ object BuildFlightPlugin : Plugin() {
         try {
             PluginConfig.reload()
             PluginMessages.reload()
+            // 已打开的面板按新兑换表重建，页码在 open 内收敛
+            ExchangeMenu.refreshOpen()
             // 自动保存间隔可能变化，重建任务
             EnergyManager.start()
         } finally {

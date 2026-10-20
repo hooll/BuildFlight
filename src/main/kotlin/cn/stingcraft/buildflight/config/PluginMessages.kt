@@ -17,6 +17,29 @@ object PluginMessages {
     lateinit var config: Configuration
         private set
 
+    /**
+     * 新增消息键的代码级默认值。
+     *
+     * 旧安装的 messages.yml 不会自动补键；缺少这些键时使用这里的默认文案，
+     * 不修改服主已有的消息文件。
+     */
+    private val defaultText: Map<String, String> = mapOf(
+        "gui-page-prev-name" to "&e← 上一页",
+        "gui-page-next-name" to "&e下一页 →",
+        "gui-page-disabled-name" to "&8翻页不可用",
+        "gui-page-indicator-name" to "&e第 &f{page}&7/&f{pages} &e页"
+    )
+
+    private val defaultList: Map<String, List<String>> = mapOf(
+        "gui-page-prev-lore" to listOf("&7点击查看上一页材料"),
+        "gui-page-next-lore" to listOf("&7点击查看下一页材料"),
+        "gui-page-disabled-lore" to listOf("&7已经到达可翻页范围的边界"),
+        "gui-page-indicator-lore" to listOf(
+            "&7共 &f{total} &7种可兑换材料",
+            "&7本页显示 &f{shown} &7种"
+        )
+    )
+
     fun load() {
         // 仅触发 @Config 注入，无需额外注册。
     }
@@ -26,12 +49,14 @@ object PluginMessages {
     }
 
     fun text(key: String, vararg placeholders: Pair<String, Any?>): String {
-        val raw = config.getString(key) ?: return ""
+        val raw = config.getString(key) ?: defaultText[key] ?: return ""
         return applyPlaceholders(raw, placeholders).colored()
     }
 
-    fun textList(key: String, vararg placeholders: Pair<String, Any?>): List<String> =
-        config.getStringList(key).map { applyPlaceholders(it, placeholders).colored() }
+    fun textList(key: String, vararg placeholders: Pair<String, Any?>): List<String> {
+        val raw = config.getStringList(key).ifEmpty { defaultList[key] ?: emptyList() }
+        return raw.map { applyPlaceholders(it, placeholders).colored() }
+    }
 
     fun send(sender: CommandSender, key: String, vararg placeholders: Pair<String, Any?>) {
         val body = text(key, *placeholders)

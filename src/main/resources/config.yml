@@ -45,9 +45,7 @@ storage:
 #     material: DIAMOND
 #     points: 60
 exchange-materials:
-  DIAMOND: 60
-  EMERALD: 30
-  GOLD_INGOT: 15
-  NETHERITE_INGOT: 720
-  NETHERITE_BLOCK: 6800
-  OBSIDIAN: 10
+  DIAMOND: 1
+  NETHERITE_INGOT: 10
+  NETHERITE_BLOCK: 90
+  OBSIDIAN: 5
