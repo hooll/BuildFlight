@@ -7,6 +7,12 @@ import java.util.Locale
 
 private const val NO_LOCALE = "NO_LOCALE"
 
+/**
+ * TabooLib 的 `getI18nName` 内部缓存是未同步的普通 HashMap，
+ * Folia 下不同玩家可能在不同区域线程首次调用，必须由插件串行化。
+ */
+private val i18nLock = Any()
+
 /** 能量显示：整数不带小数，小数保留一位。 */
 fun formatEnergy(value: Double): String {
     if (!value.isFinite()) return "0"
@@ -37,8 +43,9 @@ fun prettyMaterialName(name: String): String =
  */
 fun localizedMaterialName(player: Player, material: Material): String {
     val fallback = prettyMaterialName(material.name)
-    val localized = runCatching { material.getI18nName(player) }
-        .getOrNull()
+    val localized = runCatching {
+        synchronized(i18nLock) { material.getI18nName(player) }
+    }.getOrNull()
         ?.takeIf { it.isNotBlank() }
         ?: return fallback
     if (localized == NO_LOCALE) return fallback
