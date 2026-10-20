@@ -5,7 +5,7 @@ import cn.stingcraft.buildflight.config.PluginConfig
 import cn.stingcraft.buildflight.config.PluginMessages
 import cn.stingcraft.buildflight.data.PlayerProfile
 import cn.stingcraft.buildflight.util.formatEnergy
-import cn.stingcraft.buildflight.util.prettyMaterialName
+import cn.stingcraft.buildflight.util.localizedMaterialName
 import org.bukkit.Material
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
@@ -104,7 +104,7 @@ object ExchangeManager {
                 PluginMessages.send(
                     player,
                     "deposit-none-material",
-                    "material" to prettyMaterialName(entry.material.name)
+                    "material" to localizedMaterialName(player, entry.material)
                 )
                 return false
             }
@@ -143,7 +143,7 @@ object ExchangeManager {
                 PluginMessages.send(
                     player,
                     "deposit-none-material",
-                    "material" to prettyMaterialName(entry.material.name)
+                    "material" to localizedMaterialName(player, entry.material)
                 )
                 return false
             }
@@ -153,7 +153,7 @@ object ExchangeManager {
             PluginMessages.send(
                 player,
                 "deposit-success",
-                "material" to prettyMaterialName(entry.material.name),
+                "material" to localizedMaterialName(player, entry.material),
                 "items" to removed,
                 "points" to formatEnergy(gained),
                 "energy" to formatEnergy(profile.energy)

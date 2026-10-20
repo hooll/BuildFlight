@@ -24,6 +24,7 @@ taboolib {
         install(MinecraftChat)
         install(Database)
         install(DatabasePlayer)
+        install("bukkit-nms-stable")
     }
     description {
         name = "BuildFlight"
