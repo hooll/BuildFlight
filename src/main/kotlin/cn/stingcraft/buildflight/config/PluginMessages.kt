@@ -27,7 +27,14 @@ object PluginMessages {
         "gui-page-prev-name" to "&e← 上一页",
         "gui-page-next-name" to "&e下一页 →",
         "gui-page-disabled-name" to "&8翻页不可用",
-        "gui-page-indicator-name" to "&e第 &f{page}&7/&f{pages} &e页"
+        "gui-page-indicator-name" to "&e第 &f{page}&7/&f{pages} &e页",
+        "dominion-required" to "&c只能在 Dominion 领地内开启建筑飞行。",
+        "dominion-not-member" to "&c你必须是该领地的拥有者或成员才能在此飞行。",
+        "dominion-no-privilege" to "&c你在当前领地没有飞行权限。",
+        "dominion-flag-disabled" to "&c服务器未启用 Dominion 的 fly 权限标志，无法在此飞行。",
+        "dominion-left" to "&c你已离开领地，飞行已暂停；回到领地后可继续。",
+        "dominion-returned" to "&a已回到领地，飞行已恢复；双击空格可继续飞行。",
+        "dominion-missing" to "&c服务器未安装或未启用 Dominion，建筑飞行暂不可用。"
     )
 
     private val defaultList: Map<String, List<String>> = mapOf(

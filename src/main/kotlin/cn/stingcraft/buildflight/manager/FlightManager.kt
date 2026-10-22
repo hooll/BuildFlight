@@ -3,6 +3,8 @@ package cn.stingcraft.buildflight.manager
 import cn.stingcraft.buildflight.config.PluginConfig
 import cn.stingcraft.buildflight.config.PluginMessages
 import cn.stingcraft.buildflight.data.PlayerProfile
+import cn.stingcraft.buildflight.hook.DominionHook
+import cn.stingcraft.buildflight.hook.DominionResult
 import cn.stingcraft.buildflight.util.Scheduler
 import cn.stingcraft.buildflight.util.formatEnergy
 import cn.stingcraft.buildflight.util.remainingSeconds
@@ -58,6 +60,13 @@ object FlightManager {
             return
         }
 
+        // 起飞前必须通过领地判定；Dominion 缺失时按 deny-when-missing 放行或拒绝。
+        val dominionResult = DominionHook.check(player)
+        if (dominionResult != DominionResult.ALLOWED) {
+            notifyDominionDenied(player, dominionResult)
+            return
+        }
+
         val cooldown = remainingSeconds(profile.combatUntil)
         if (cooldown > 0L) {
             PluginMessages.send(player, "combat-cooldown", "seconds" to cooldown)
@@ -74,6 +83,7 @@ object FlightManager {
 
     private fun grant(player: Player, profile: PlayerProfile) {
         profile.flying = true
+        profile.dominionSuspended = false
         player.allowFlight = true
         player.isFlying = true
 
@@ -135,9 +145,41 @@ object FlightManager {
             EnergyManager.saveAsync(profile)
             return
         }
+
+        // 领地判定必须排在 allowFlight 检查之前：暂停期间 allowFlight 本来就是 false，
+        // 不能让它走下面“被其他插件收回”的清理分支，否则会误关飞行模式。
+        val dominionResult = DominionHook.check(player)
+        if (profile.dominionSuspended) {
+            when (dominionResult) {
+                DominionResult.ALLOWED -> resumeDominion(player, profile)
+                DominionResult.UNAVAILABLE -> {
+                    // fail-closed：Dominion 在暂停期间消失，按“彻底关闭模式”处理。
+                    handleDominionOutside(player, dominionResult)
+                    return
+                }
+
+                else -> {
+                    // 仍在领地外：保持暂停，确保 allowFlight=false，不扣费，只刷新 BossBar。
+                    if (player.allowFlight) player.allowFlight = false
+                    if (player.isFlying) {
+                        player.isFlying = false
+                        applyFallProtection(player, profile)
+                    }
+                    BossBarManager.update(player, profile)
+                    return
+                }
+            }
+        }
+        if (dominionResult != DominionResult.ALLOWED) {
+            handleDominionOutside(player, dominionResult)
+            BossBarManager.update(player, profile)
+            return
+        }
+
         // 飞行权限被其他插件/服务端收回时，停止扣费并清理状态，避免幽灵 BossBar。
         if (!player.allowFlight) {
             profile.flying = false
+            profile.dominionSuspended = false
             profile.task?.cancel()
             profile.task = null
             BossBarManager.hide(player, profile)
@@ -194,6 +236,7 @@ object FlightManager {
         profile.task?.cancel()
         profile.task = null
         profile.flying = false
+        profile.dominionSuspended = false
         BossBarManager.hide(player, profile)
 
         if (resetAllowFlight &&
@@ -314,6 +357,70 @@ object FlightManager {
             // 事件本身就在玩家区域线程上触发，可以直接补保护
             applyFallProtection(player, profile)
         }
+    }
+
+    /**
+     * 玩家离开领地（或在领地内失去资格）时暂停飞行。
+     *
+     * 暂停不等于关闭模式：不取消扣费任务、不隐藏 BossBar、不把 `profile.flying`
+     * 置 false，只收回 `allowFlight` 并给缓降/摔落保护；回到领地后由
+     * [resumeDominion] 恢复 `allowFlight`，玩家双击空格继续飞行。
+     *
+     * `UNAVAILABLE` 是 fail-closed 分支：Dominion 缺失/异常时彻底关闭模式，
+     * 即使当前已经处于暂停状态也要执行。
+     *
+     * 必须在玩家实体/区域线程调用。
+     */
+    fun handleDominionOutside(player: Player, reason: DominionResult) {
+        if (reason == DominionResult.ALLOWED) return
+        val profile = EnergyManager.profile(player.uniqueId) ?: return
+        if (!profile.flying) return
+
+        if (reason == DominionResult.UNAVAILABLE) {
+            stop(player, profile, safeLanding = true, notify = false, resetAllowFlight = true)
+            notifyDominionDenied(player, reason)
+            EnergyManager.saveAsync(profile)
+            return
+        }
+
+        if (profile.dominionSuspended) return
+        if (player.isFlying) {
+            player.isFlying = false
+            applyFallProtection(player, profile)
+        }
+        player.allowFlight = false
+        profile.dominionSuspended = true
+
+        when (reason) {
+            DominionResult.NOT_IN_CLAIM -> PluginMessages.send(player, "dominion-left")
+            else -> notifyDominionDenied(player, reason)
+        }
+    }
+
+    /**
+     * 回到领地后恢复暂停的飞行。
+     *
+     * 只恢复 `allowFlight` 并提示，不强制 `isFlying=true`；玩家双击空格继续飞行。
+     * 必须在玩家实体/区域线程调用。
+     */
+    fun resumeDominion(player: Player, profile: PlayerProfile) {
+        if (!profile.flying || !profile.dominionSuspended) return
+        profile.dominionSuspended = false
+        player.allowFlight = true
+        PluginMessages.send(player, "dominion-returned")
+    }
+
+    /** 把领地判定结果映射成玩家可见消息；[DominionResult.ALLOWED] 不发消息。 */
+    fun notifyDominionDenied(player: Player, result: DominionResult) {
+        val key = when (result) {
+            DominionResult.NOT_IN_CLAIM -> "dominion-required"
+            DominionResult.NOT_MEMBER -> "dominion-not-member"
+            DominionResult.NO_PRIVILEGE -> "dominion-no-privilege"
+            DominionResult.FLAG_DISABLED -> "dominion-flag-disabled"
+            DominionResult.UNAVAILABLE -> "dominion-missing"
+            DominionResult.ALLOWED -> return
+        }
+        PluginMessages.send(player, key)
     }
 
     /** 清除缓降与摔落免伤标记；落地、超时、退出、死亡、跨世界时调用。 */
