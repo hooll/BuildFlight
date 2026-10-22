@@ -95,6 +95,14 @@ player-only: "&c该指令只能由玩家执行。"
 reload-success: "&a配置与消息已重载。"
 reload-failed: "&c重载失败: &f{error}"
 
+dominion-required: "&c只能在 Dominion 领地内开启建筑飞行。"
+dominion-not-member: "&c你必须是该领地的拥有者或成员才能在此飞行。"
+dominion-no-privilege: "&c你在当前领地没有飞行权限。"
+dominion-flag-disabled: "&c服务器未启用 Dominion 的 fly 权限标志，无法在此飞行。"
+dominion-left: "&c你已离开领地，飞行已暂停；回到领地后可继续。"
+dominion-returned: "&a已回到领地，飞行已恢复；双击空格可继续飞行。"
+dominion-missing: "&c服务器未安装或未启用 Dominion，建筑飞行暂不可用。"
+
 help:
   - "&b&lBuildFlight &7- 建筑飞行"
   - "&f/bflight &7或 &f/bf &7- 打开操作面板"

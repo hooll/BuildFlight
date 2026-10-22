@@ -25,6 +25,16 @@ class PlayerProfile(val uuid: UUID) {
     @Volatile
     var flying: Boolean = false
 
+    /**
+     * 是否因离开 Dominion 领地而暂停飞行。
+     *
+     * 暂停不等于关闭模式：`flying` 保持 true、扣费任务与 BossBar 保留，
+     * 只把 `allowFlight` 收回；回到领地后清除本标记并恢复 `allowFlight`。
+     * 仅运行期状态，不持久化。
+     */
+    @Volatile
+    var dominionSuspended: Boolean = false
+
     /** 战斗冷却结束时间（epoch millis） */
     @Volatile
     var combatUntil: Long = 0L

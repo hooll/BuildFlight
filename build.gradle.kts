@@ -31,6 +31,9 @@ taboolib {
         contributors {
             name("BuildFlight")
         }
+        dependencies {
+            name("Dominion").optional(true)
+        }
     }
     version {
         taboolib = "6.3.0-0e3a911"
@@ -40,6 +43,8 @@ taboolib {
 dependencies {
     compileOnly("ink.ptms.core:v12004:12004:mapped")
     compileOnly(kotlin("stdlib"))
+    // 仅编译期引用，不打包；Dominion 未安装时由 DominionHook 安全跳过。
+    compileOnly("cn.lunadeer:DominionAPI:4.9.6")
 }
 
 java {

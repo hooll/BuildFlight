@@ -20,6 +20,15 @@ data class ExchangeEntry(
 )
 
 /**
+ * Dominion 领地飞行判定模式。
+ *
+ * - [MEMBER]：只有领地拥有者或成员可以飞行（默认）。
+ * - [ANY]：任意领地内都可以飞行，不区分成员身份。
+ * - [FLAG]：以 Dominion 的 `fly` 优先权标志为准（需要服主在 `flags.yml` 启用）。
+ */
+enum class DominionMode { MEMBER, ANY, FLAG }
+
+/**
  * config.yml 的读取入口。
  *
  * 所有 getter 都带默认值，配置文件缺项时插件仍可启动。
@@ -48,6 +57,9 @@ object PluginConfig {
     private var warnedBossBarStyle = false
 
     @Volatile
+    private var warnedDominionMode = false
+
+    @Volatile
     private var disabledWorlds: Set<String> = emptySet()
 
     /** 插件启用时调用一次；不要覆盖用户已有的 config.yml。 */
@@ -64,6 +76,7 @@ object PluginConfig {
         config.reload()
         warnedBossBarColor = false
         warnedBossBarStyle = false
+        warnedDominionMode = false
         reloadExchangeTable()
     }
 
@@ -159,6 +172,28 @@ object PluginConfig {
 
     val fallProtectionSeconds: Int
         get() = config.getInt("fall-protection-seconds", 10).coerceAtLeast(0)
+
+    /** Dominion 集成总开关；false 时完全恢复旧行为。 */
+    val dominionEnabled: Boolean
+        get() = config.getBoolean("dominion.enabled", true)
+
+    /** 领地判定模式；非法值只 warning 一次并回退 MEMBER。 */
+    val dominionMode: DominionMode
+        get() {
+            val raw = config.getString("dominion.mode", "member") ?: "member"
+            return runCatching { DominionMode.valueOf(raw.trim().uppercase(Locale.ROOT)) }
+                .getOrElse {
+                    if (!warnedDominionMode) {
+                        warnedDominionMode = true
+                        warning("[BuildFlight] 无效的 dominion.mode: $raw，回退到 MEMBER")
+                    }
+                    DominionMode.MEMBER
+                }
+        }
+
+    /** Dominion 缺失/API 异常时是否禁止飞行；默认 false，维持旧行为。 */
+    val dominionDenyWhenMissing: Boolean
+        get() = config.getBoolean("dominion.deny-when-missing", false)
 
     val consumePerSecond: Double
         get() = config.getDouble("energy.consume-per-second", 1.0).coerceAtLeast(0.0)

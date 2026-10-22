@@ -87,6 +87,66 @@ build/libs/BuildFlight-1.0.0.jar
 | `/bflight help` | 查看帮助 | `buildflight.use` |
 | `/bflight reload` | 重载 `config.yml` / `messages.yml`，重建在线玩家的 BossBar，并刷新已打开的面板 | `buildflight.admin`（默认 OP） |
 
+另外提供领地飞行应急权限：
+
+| 权限 | 说明 | 默认 |
+|---|---|---|
+| `buildflight.dominion.bypass` | 无视 Dominion 领地限制，在任意位置开启建筑飞行（同时绕过“Dominion 缺失时禁止飞行”） | OP |
+
+---
+
+## Dominion 领地飞行限制（可选）
+
+BuildFlight 可以把建筑飞行限制在 **Dominion** 领地内。Dominion 是可选依赖（`softdepend`）：未安装时插件照常启动，行为与旧版一致。
+
+### 行为
+
+- **起飞拦截**：GUI 开关与双击空格恢复飞行都会先做领地判定，不通过则拒绝并提示原因。
+- **离开领地 = 暂停，不是关闭**：`profile.flying` 保持 `true`，BossBar 与扣费任务保留，只把 `allowFlight` 收回；离地时给缓降/摔落保护，暂停期间不扣费。
+- **回到领地 = 恢复**：自动恢复 `allowFlight` 并提示，玩家双击空格继续飞行（不会强制拉起飞行状态）。
+- **越界检查**：`PlayerMoveEvent`（按方块坐标变化过滤）、`PlayerTeleportEvent` 以及每秒 tick 兜底都会重新判定。
+- **彻底关闭**：战斗打断、能量耗尽、退出、死亡、跨世界、游戏模式切换、GUI 关闭、插件卸载仍然走原来的 `stop()`，会真正关闭飞行模式。
+
+### 配置
+
+`dominion` 段**不在默认 `config.yml` 中生成**（避免覆盖服主已有配置），需要时手动追加：
+
+```yaml
+dominion:
+  # 总开关；false 时完全恢复旧行为
+  enabled: true
+  # member：只有领地拥有者/成员可飞；any：任意领地；flag：以 Dominion 的 fly 优先权标志为准
+  mode: member
+  # Dominion 缺失或 API 异常时是否禁止飞行；false = 维持旧行为
+  deny-when-missing: false
+```
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `dominion.enabled` | `true` | 总开关 |
+| `dominion.mode` | `member` | `member` / `any` / `flag`；非法值只警告一次并回退 `member` |
+| `dominion.deny-when-missing` | `false` | Dominion 缺失/异常时是否 fail-closed |
+
+### 模式说明
+
+- `member`（默认）：领地拥有者或成员可以飞行，其他玩家在领地内被拒绝。
+- `any`：任意 Dominion 领地内都可以飞行，不区分成员身份。
+- `flag`：使用 Dominion 的 `fly` 优先权标志。需要先在 Dominion 的 `flags.yml` 中设置 `privilege.fly.enable: true`，否则会提示“服务器未启用 Dominion 的 fly 权限标志”。
+
+### 与 Dominion 自带 fly 标志的关系
+
+Dominion 4.9.x 自带 `FlyCheckHandler`：启用 `privilege.fly.enable` 后，它会在玩家进入领地时授予 `allowFlight`。这套飞行**不消耗 BuildFlight 能量**，与 BuildFlight 的飞行并存。
+
+- 建议服主二选一：关闭 Dominion 的 fly 标志（推荐，`member` 模式下尤其如此），或接受领地内存在免费原版飞行。
+- 如果两套同时启用，BuildFlight 的暂停分支会在领地外强制 `allowFlight=false`，可能与 Dominion 的授予形成拉锯。
+- 不要开启 TabooLib 的隔离类加载（`enable-isolated-classloader`），否则 `DominionAPI.getInstance()` 可能拿不到 Dominion 的实例。
+
+### 依赖版本
+
+- 编译依赖：`cn.lunadeer:DominionAPI:4.9.6`（`compileOnly`，不打包）。
+- 实机验证版本：Dominion `4.9.5-release-full`。
+- 更低版本可能缺少 `Flags.FLY` 或相关 API，hook 会降级为 `UNAVAILABLE`，按 `deny-when-missing` 处理。
+
 ---
 
 ## GUI 操作
