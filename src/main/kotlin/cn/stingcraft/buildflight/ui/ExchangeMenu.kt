@@ -9,7 +9,7 @@ import cn.stingcraft.buildflight.manager.ExchangeManager
 import cn.stingcraft.buildflight.manager.FlightManager
 import cn.stingcraft.buildflight.util.Scheduler
 import cn.stingcraft.buildflight.util.formatEnergy
-import cn.stingcraft.buildflight.util.prettyMaterialName
+import cn.stingcraft.buildflight.util.localizedMaterialName
 import cn.stingcraft.buildflight.util.remainingSeconds
 import org.bukkit.Bukkit
 import org.bukkit.Material
@@ -76,7 +76,7 @@ object ExchangeMenu {
         val counts = if (activeProfile != null) countMaterials(player, entries) else emptyMap()
         val materialItems: Map<ExchangeEntry, ItemStack> = if (activeProfile != null) {
             entries.associateWith { entry ->
-                materialItem(entry, counts[entry.material] ?: 0, activeProfile)
+                materialItem(player, entry, counts[entry.material] ?: 0, activeProfile)
             }
         } else {
             emptyMap()
@@ -311,13 +311,14 @@ object ExchangeMenu {
     }
 
     private fun materialItem(
+        player: Player,
         entry: ExchangeEntry,
         have: Int,
         profile: PlayerProfile
     ): ItemStack = buildItem(entry.material) {
         name = PluginMessages.text(
             "gui-material-name",
-            "material" to prettyMaterialName(entry.material.name),
+            "material" to localizedMaterialName(player, entry.material),
             "points" to formatEnergy(entry.points)
         )
         lore += PluginMessages.textList(
