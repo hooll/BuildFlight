@@ -2,16 +2,8 @@ package cn.stingcraft.buildflight.util
 
 import org.bukkit.Material
 import org.bukkit.entity.Player
-import taboolib.module.nms.getI18nName
+import taboolib.module.nms.MinecraftLanguage
 import java.util.Locale
-
-private const val NO_LOCALE = "NO_LOCALE"
-
-/**
- * TabooLib 的 `getI18nName` 内部缓存是未同步的普通 HashMap，
- * Folia 下不同玩家可能在不同区域线程首次调用，必须由插件串行化。
- */
-private val i18nLock = Any()
 
 /** 能量显示：整数不带小数，小数保留一位。 */
 fun formatEnergy(value: Double): String {
@@ -37,20 +29,25 @@ fun prettyMaterialName(name: String): String =
         .joinToString(" ") { part -> part.replaceFirstChar { it.uppercase(Locale.ROOT) } }
 
 /**
- * 材料显示名：优先取玩家客户端语言的官方译名，取不到时回退 [prettyMaterialName]。
+ * 材料显示名：按玩家客户端语言查 Minecraft 官方语言文件，取不到时回退 [prettyMaterialName]。
+ *
+ * 为什么不用 TabooLib 的 `getI18nName`：
+ *  1. 它内部经 `CraftItemStack.asCraftCopy` 取翻译键，在 Paper/Lophine 26.3 上该方法签名
+ *     已变化，运行期抛 `NoSuchMethodError`，被调用方捕获后只会静默回退成英文；
+ *  2. 它内部的缓存只以材料名为键、不区分 locale，先被英文客户端调用一次就会把英文
+ *     结果固定给之后所有玩家。
+ * 因此这里直接使用 `Material.translationKey` 查 `MinecraftLanguage` 的语言表：不经过
+ * NMS、不写全局缓存，并按玩家 locale 取词。
  *
  * 只在玩家实体线程调用；纯查询，不修改任何 Bukkit 状态。
  */
 fun localizedMaterialName(player: Player, material: Material): String {
     val fallback = prettyMaterialName(material.name)
-    val localized = runCatching {
-        synchronized(i18nLock) { material.getI18nName(player) }
-    }.getOrNull()
-        ?.takeIf { it.isNotBlank() }
-        ?: return fallback
-    if (localized == NO_LOCALE) return fallback
-    val isRawKey = runCatching {
-        localized == material.translationKey || localized == material.itemTranslationKey
-    }.getOrDefault(false)
-    return if (isRawKey) fallback else localized
+    return runCatching {
+        val key = material.translationKey
+        // en_us 由 MinecraftLanguage 内部映射到 en_gb；未知 locale 回退到默认语言表（zh_cn）。
+        val file = MinecraftLanguage.getLanguageFile(player.locale) ?: MinecraftLanguage.getDefaultLanguageFile()
+        val name = file?.get(key)
+        if (name.isNullOrBlank() || name == key) fallback else name
+    }.getOrDefault(fallback)
 }
