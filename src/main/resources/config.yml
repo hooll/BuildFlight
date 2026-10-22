@@ -17,10 +17,10 @@ combat:
   # 受到实体攻击或主动攻击实体时，立即中断飞行
   cancel-on-damage: true
   # 中断后禁止再次开启飞行的秒数
-  cooldown-seconds: 10
+  cooldown-seconds: 5
 
 # 能量耗尽 / 主动关闭飞行后的缓降保护秒数
-fall-protection-seconds: 10
+fall-protection-seconds: 5
 
 # 这些世界禁止使用建筑飞行
 disabled-worlds:
@@ -48,4 +48,3 @@ exchange-materials:
   DIAMOND: 1
   NETHERITE_INGOT: 10
   NETHERITE_BLOCK: 90
-  OBSIDIAN: 5
