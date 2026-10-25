@@ -4,4 +4,10 @@ build/
 *.iml
 out/
 .work/
+
+# 本地测试服与机器人夹具：只在本机存在，不进版本库
 .local-server/
+
+# 双 Agent 交接文档（PLAN/EXEC/AUDIT/STATE）与测试工具脚本：
+# 内含服务器地址、部署记录等内部信息，不进版本库
+agent-work/
