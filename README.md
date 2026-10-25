@@ -12,6 +12,8 @@
 - GUI 内展示当前能量、每秒消耗、血条基准与飞行/战斗状态。
 - **一键存入**：扫描玩家主背包，把所有在 `config.yml` 中配置的材料一次性兑换为能量。
 - **分类存入**：每种材料一个按钮，左键存入全部、右键存入 1 件、Shift+左键存入 64 件。
+- **套餐兑换**：`bundles.yml` 可配置“一组材料 → 固定能量”的套餐，套餐按钮排在材料之前，支持批量兑换与折扣对比。
+- **管理员发放**：`/bf give <玩家> <点数>` 给在线或离线玩家发放能量，控制台可执行，便于其他插件接入。
 - **飞行开关**：能量 > 0 时开启 `allowFlight` + `flying`；关闭时若仍离地，自动给予缓降保护。
 - **BossBar**：仅飞行期间显示，标题为 `&e⚡ 建筑飞行模式 &7| &f剩余能量: &a{energy} &f秒`，进度按 `max-energy-reference` 计算。
 - **每秒扣费**：只有 `player.isFlying == true` 且双脚离地时才扣 1 点；落地暂停。
@@ -72,6 +74,7 @@ build/libs/BuildFlight-1.0.0.jar
 2. 首次启动后自动生成：
    - `plugins/BuildFlight/config.yml`
    - `plugins/BuildFlight/messages.yml`
+   - `plugins/BuildFlight/bundles.yml`（默认只有注释示例，未启用任何套餐）
    - `plugins/BuildFlight/data.db`（SQLite）
 3. 修改配置后执行 `/bflight reload`。
 
@@ -85,13 +88,29 @@ build/libs/BuildFlight-1.0.0.jar
 |---|---|---|
 | `/bflight`、`/bf` | 打开建筑飞行面板 | `buildflight.use`（默认所有人） |
 | `/bflight help` | 查看帮助 | `buildflight.use` |
-| `/bflight reload` | 重载 `config.yml` / `messages.yml`，重建在线玩家的 BossBar，并刷新已打开的面板 | `buildflight.admin`（默认 OP） |
+| `/bflight give <玩家> <点数>` | 给在线或离线玩家发放能量；支持小数，必须 > 0 | `buildflight.admin`（默认 OP） |
+| `/bflight reload` | 重载 `config.yml` / `messages.yml` / `bundles.yml`，重建在线玩家的 BossBar，并刷新已打开的面板 | `buildflight.admin`（默认 OP） |
 
 另外提供领地飞行应急权限：
 
 | 权限 | 说明 | 默认 |
 |---|---|---|
 | `buildflight.dominion.bypass` | 无视 Dominion 领地限制，在任意位置开启建筑飞行（同时绕过“Dominion 缺失时禁止飞行”） | OP |
+
+`buildflight.admin` 同时覆盖 `give` 与 `reload`，不再单独拆分子权限。
+
+### 给其他插件接入
+
+`/bf give` 复用 `buildflight.admin`，控制台默认放行，因此其他插件可以直接通过控制台指令发放：
+
+```java
+Bukkit.dispatchCommand(Bukkit.getConsoleSender(),
+    "bf give " + playerName + " " + points);
+```
+
+- 名字必须是玩家名，不支持 UUID 字符串。
+- 离线发放只认**服务端缓存里曾进服过**的玩家（至少进服一次）；从未出现过的名字会被拒绝，因为插件不会为此发起阻塞的 Mojang 查询。
+- 发放是异步的：在线玩家立即到账，离线玩家要等数据库写入成功才算完成；返回时不会同步告知结果，需要回执请读控制台日志。
 
 ---
 
@@ -155,19 +174,63 @@ Dominion 4.9.x 自带 `FlyCheckHandler`：启用 `privilege.fly.enable` 后，�
 4：当前能量 / 状态
 11：一键存入全部材料
 15：开启 / 关闭飞行
-19..25、28..34、37..43：当前页材料（每页 21 项）
+19..25、28..34、37..43：当前页套餐与材料（每页 21 项，套餐在前）
 45 / 49 / 53：上一页 / 页码 / 下一页
 ```
 
 - 一键存入：扫描主背包（36 格），扣除所有配置允许的材料并结算能量。
-- 材料列表按 `config.yml` 的配置顺序分页，不再截断；新增材料后重载配置即可显示。
+- 列表顺序固定为“套餐（`bundles.yml` 配置顺序）→ 材料（`config.yml` 配置顺序）”，两者共用同一套分页。
 - 材料按钮：
   - 左键：存入当前背包中该材料的全部数量
   - 右键：存入 1 件
   - Shift + 左键：存入 64 件
+- 套餐按钮：
+  - 左键 / 右键：兑换 1 份
+  - Shift + 左键：按背包材料兑换尽可能多的完整份数
+  - 其他点击无操作
 - 面板点击与拖拽被整体锁定，玩家无法把菜单物品取出，也无法把背包物品塞进菜单。
 - 每次操作后会在下一 tick 自动重开面板，刷新能量与数量并停留在当前页；如果玩家已经关闭或切换面板，则不会强行拉回。配置重载导致当前页越界时，页码会收敛到有效范围。
 - 建筑飞行模式开启后，玩家可以直接双击空格收起原版飞行：空中会自动获得缓降保护，落地行走暂停扣费，再次双击空格即可继续飞行。BossBar 与模式本身保留；若要彻底退出并收起 BossBar，点击 GUI 的“关闭建筑飞行”。
+
+---
+
+## 套餐兑换（bundles.yml）
+
+`bundles.yml` 位于 `plugins/BuildFlight/`，首次启动自动生成，**默认不启用任何套餐**，只保留注释示例，因此不会改变现有经济。取消注释即可启用：
+
+```yaml
+bundles:
+  # 64 钻石按单件价合计 64 点；套餐给 80 点，等于多给 25%
+  diamond_64:
+    name: "&b钻石套餐 &7(64 件)"
+    icon: DIAMOND
+    points: 80
+    items:
+      DIAMOND: 64
+
+  # 32 钻石 + 4 下界合金锭按单件价合计 72 点；套餐给 90 点
+  diamond_netherite:
+    name: "&6钻石+下界合金套餐"
+    icon: NETHERITE_INGOT
+    points: 90
+    items:
+      DIAMOND: 32
+      NETHERITE_INGOT: 4
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `<id>` | 是 | 套餐唯一标识；未写 `name` 时用 `gui-bundle-name` 显示 |
+| `name` | 否 | 显示名，支持 `&` 颜色；留空时回退 `gui-bundle-name` |
+| `icon` | 否 | GUI 图标材料；缺省或非法时回退到 `items` 的第一个材料 |
+| `points` | 是 | 每份套餐奖励的能量点数，必须有限且 > 0 |
+| `items` | 是 | 材料 → 数量，至少一项，数量必须为正整数 |
+
+- **折扣语义**：不单独配置折扣倍率。套餐奖励就是 `points`，折扣体现为它与“按 `exchange-materials` 单件价合计”的差额。这样套餐可以包含不在单件表里的材料，单件价格调整也不会自动改变套餐奖励。
+- **GUI 对比行**：所有需求材料都有单件价时显示“单件合计”；`points` 更高时显示“套餐加成 +N 点 (+X%)”，更低时如实提示“比单件少 -N 点”；有任一材料不在单件表时省略对比行。
+- **原子性**：先校验再扣物，扣完核对每种材料的实扣量；任一步异常或数量对不上就按快照放回背包，不发放能量。
+- **校验策略**：非法条目（材料名错误、`points` ≤ 0、`items` 为空、数量非正）只记一条 warning 并整条跳过，不会加载半套套餐，也不会阻止插件启动；文件缺失或损坏视为“没有套餐”。
+- **热重载**：`/bf reload` 会重载 `bundles.yml` 并立即刷新已打开的面板；点击旧面板上的按钮时按 id 重新取当前配置，条目被删除或改价时只刷新、不按旧价格结算。
 
 ---
 
@@ -181,8 +244,8 @@ Dominion 4.9.x 自带 `FlyCheckHandler`：启用 `privilege.fly.enable` 后，�
 | `bossbar.style` | 血条样式：`SOLID/SEGMENTED_6/SEGMENTED_10/SEGMENTED_12/SEGMENTED_20` | `SOLID` |
 | `bossbar.max-energy-reference` | 血条 100% 对应的能量点数（只影响显示比例） | `3600` |
 | `combat.cancel-on-damage` | 受到/造成实体伤害时是否打断飞行 | `true` |
-| `combat.cooldown-seconds` | 打断后的禁飞秒数 | `10` |
-| `fall-protection-seconds` | 能量耗尽/主动关闭/双击空格降落时的缓降秒数；免伤硬性超时为该值 + 5 秒 | `10` |
+| `combat.cooldown-seconds` | 打断后的禁飞秒数 | `5` |
+| `fall-protection-seconds` | 能量耗尽/主动关闭/双击空格降落时的缓降秒数；免伤硬性超时为该值 + 5 秒 | `5` |
 | `disabled-worlds` | 禁止飞行的世界名列表 | `world_the_end` |
 | `energy.consume-per-second` | 每秒消耗能量 | `1.0` |
 | `storage.auto-save-seconds` | 缓存自动落库间隔 | `30` |
@@ -193,13 +256,12 @@ Dominion 4.9.x 自带 `FlyCheckHandler`：启用 `privilege.fly.enable` 后，�
 
 ```yaml
 exchange-materials:
-  DIAMOND: 60
-  EMERALD: 30
-  GOLD_INGOT: 15
-  NETHERITE_INGOT: 720
-  NETHERITE_BLOCK: 6800
-  OBSIDIAN: 10
+  DIAMOND: 1
+  NETHERITE_INGOT: 10
+  NETHERITE_BLOCK: 90
 ```
+
+多材料打包兑换与折扣见 [套餐兑换（bundles.yml）](#套餐兑换bundlesyml)。
 
 也支持为每种材料单独指定 `material` / `points`，便于使用别名键：
 
@@ -207,7 +269,7 @@ exchange-materials:
 exchange-materials:
   my_diamond:
     material: DIAMOND
-    points: 60
+    points: 1
 ```
 
 `messages.yml`：所有玩家可见文本，支持 `&` 颜色码（TabooLib 还支持 `&{#RRGGBB}` 十六进制写法）；占位符使用 `{name}` 或 `%name%`。
@@ -249,7 +311,9 @@ exchange-materials:
 - 未做 1.20.4 ~ 1.21.x 的版本回归；这些版本仅作为编译基线。
 - Folia 在插件 `disable` 阶段无法保证再向各区域线程投递任务；此时 `BossBar` 采用 `removeAll()` 兜底清理，飞行状态由服务端关闭流程回收。
 - 摔落保护标记未持久化（仅本次在线会话有效），但单次保护有 `fall-protection-seconds + 5` 秒的硬性上限，不会无限免伤；战斗冷却随能量一起写入数据库，重连后仍然生效。
-- 兑换只扫描主背包 36 格，不处理副手、盔甲槽与光标物品。
+- 兑换（单材料与套餐）只扫描主背包 36 格，不处理副手、盔甲槽与光标物品。
+- `/bf give` 的离线发放只认曾在本服进服过、仍在服务端缓存中的玩家；从未出现过的名字会被拒绝，也不会为此发起网络查询。
+- 套餐与单材料的点击语义不同：套餐按“份”结算，不由一键存入处理；一键存入只处理 `exchange-materials` 里的单材料。
 
 ---
 
@@ -262,11 +326,15 @@ src/main/kotlin/cn/stingcraft/buildflight/
 │   └── MainCommand.kt            /bflight、/bf
 ├── config/
 │   ├── PluginConfig.kt           config.yml
-│   └── PluginMessages.kt         messages.yml
+│   ├── PluginMessages.kt         messages.yml
+│   └── BundleConfig.kt           bundles.yml（套餐读取与校验）
 ├── data/
 │   └── PlayerProfile.kt          玩家运行期档案
 ├── database/
 │   └── EnergyStorage.kt          SQLite 持久化
+├── hook/
+│   ├── DominionHook.kt           Dominion 可选依赖入口
+│   └── DominionBackendImpl.kt    Dominion API 适配
 ├── listener/
 │   ├── PlayerListener.kt         生命周期事件
 │   └── CombatListener.kt         战斗打断 / 摔落免伤
@@ -280,4 +348,9 @@ src/main/kotlin/cn/stingcraft/buildflight/
 └── util/
     ├── Scheduler.kt              Paper/Folia 统一调度
     └── Formats.kt                数字与文本格式化
+
+src/main/resources/
+├── config.yml                    默认配置
+├── messages.yml                  默认文案
+└── bundles.yml                   套餐示例（默认只有注释）
 ```
