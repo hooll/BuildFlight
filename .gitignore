@@ -11,3 +11,13 @@ out/
 # 双 Agent 交接文档（PLAN/EXEC/AUDIT/STATE）与测试工具脚本：
 # 内含服务器地址、部署记录等内部信息，不进版本库
 agent-work/
+
+# 机器人测试脚本与依赖（只在本机存在）
+tests/
+
+# Kotlin 增量编译缓存
+.kotlin/
+
+# 构建产物 jar；wrapper jar 必须保留
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
