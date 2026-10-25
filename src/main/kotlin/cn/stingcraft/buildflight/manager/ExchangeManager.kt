@@ -1,8 +1,10 @@
 package cn.stingcraft.buildflight.manager
 
+import cn.stingcraft.buildflight.config.BundleEntry
 import cn.stingcraft.buildflight.config.ExchangeEntry
 import cn.stingcraft.buildflight.config.PluginConfig
 import cn.stingcraft.buildflight.config.PluginMessages
+import cn.stingcraft.buildflight.config.displayName
 import cn.stingcraft.buildflight.data.PlayerProfile
 import cn.stingcraft.buildflight.util.formatEnergy
 import cn.stingcraft.buildflight.util.localizedMaterialName
@@ -164,6 +166,113 @@ object ExchangeManager {
             profile.exchanging = false
         }
     }
+
+    /**
+     * 兑换指定套餐。
+     *
+     * 原子性：先在快照里逐槽精确扣除，扣完校验每种材料的实扣量等于“需求 × 份数”，
+     * 任一步异常或数量对不上就按快照原槽位放回，绝不出现“扣了物没加能量”或“加能量没扣物”。
+     *
+     * @param requested 期望份数；[Int.MAX_VALUE] 表示在材料允许范围内尽可能多
+     */
+    fun exchangeBundle(player: Player, bundle: BundleEntry, requested: Int): Boolean {
+        val profile = readyProfile(player) ?: return false
+        if (requested <= 0 || bundle.items.isEmpty()) return false
+        if (!begin(profile)) return false
+
+        try {
+            val inventory = player.inventory
+            val contents = inventory.storageContents
+
+            val wanted = bundle.items.mapTo(HashSet()) { it.material }
+            val have = HashMap<Material, Int>()
+            for (stack in contents) {
+                if (stack != null && stack.type in wanted) {
+                    have[stack.type] = (have[stack.type] ?: 0) + stack.amount
+                }
+            }
+
+            val maxPortions = bundle.items.minOf { (have[it.material] ?: 0) / it.amount }
+            val portions = minOf(requested, maxPortions)
+            if (portions <= 0) {
+                PluginMessages.send(
+                    player,
+                    "bundle-not-enough",
+                    "bundle" to bundle.displayName(),
+                    "missing" to missingText(player, bundle, have)
+                )
+                return false
+            }
+
+            // 扣物前先确认奖励可表示：避免扣了物却只能加 Infinity 或加不上能量。
+            val gained = bundle.points * portions
+            if (!gained.isFinite() || gained <= 0.0) {
+                warning("[BuildFlight] 套餐 ${bundle.id} 的奖励无法表示: ${bundle.points} × $portions")
+                PluginMessages.send(player, "bundle-failed")
+                return false
+            }
+
+            val required = bundle.items.associate { it.material to it.amount * portions }
+            val snapshot = contents.mapIndexedNotNull { index, stack ->
+                if (stack != null && stack.type in required) index to stack.clone() else null
+            }
+
+            val remaining = required.toMutableMap()
+            try {
+                for (slot in contents.indices) {
+                    val stack = contents[slot] ?: continue
+                    // 先把材料名取出来：setAmount(0) 之后 CraftItemStack 的 type 会变成 AIR，
+                    // 再拿 stack.type 当键就会写到一个不存在的键上，导致扣除校验永远失败。
+                    val material = stack.type
+                    val need = remaining[material] ?: continue
+                    if (need <= 0) continue
+                    val take = minOf(need, stack.amount)
+                    stack.amount -= take
+                    remaining[material] = need - take
+                    inventory.setItem(slot, if (stack.amount <= 0) null else stack)
+                }
+            } catch (error: Throwable) {
+                rollback(inventory, snapshot)
+                warning("[BuildFlight] 套餐扣除物品失败 (${player.name}): $error")
+                PluginMessages.send(player, "bundle-failed")
+                return false
+            }
+
+            val unfinished = remaining.filterValues { it > 0 }
+            if (unfinished.isNotEmpty()) {
+                rollback(inventory, snapshot)
+                warning("[BuildFlight] 套餐 ${bundle.id} 扣除数量校验失败 (${player.name}): $unfinished")
+                PluginMessages.send(player, "bundle-failed")
+                return false
+            }
+
+            credit(profile, gained)
+            PluginMessages.send(
+                player,
+                "bundle-success",
+                "portions" to portions,
+                "bundle" to bundle.displayName(),
+                "points" to formatEnergy(gained),
+                "energy" to formatEnergy(profile.energy)
+            )
+            afterChange(player, profile)
+            return true
+        } finally {
+            profile.exchanging = false
+        }
+    }
+
+    /** 材料不足时列出缺少项，格式“材料 拥有/需要”。 */
+    private fun missingText(
+        player: Player,
+        bundle: BundleEntry,
+        have: Map<Material, Int>
+    ): String = bundle.items
+        .filter { (have[it.material] ?: 0) < it.amount }
+        .joinToString(", ") { item ->
+            val owned = have[item.material] ?: 0
+            "${localizedMaterialName(player, item.material)} $owned/${item.amount}"
+        }
 
     private fun readyProfile(player: Player): PlayerProfile? {
         val profile = EnergyManager.profile(player.uniqueId)

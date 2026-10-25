@@ -2,7 +2,10 @@ package cn.stingcraft.buildflight.data
 
 import cn.stingcraft.buildflight.util.TaskHandle
 import org.bukkit.boss.BossBar
+import org.bukkit.command.CommandSender
+import org.bukkit.entity.Player
 import java.util.UUID
+import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
  * 单个玩家的运行期档案。
@@ -73,4 +76,37 @@ class PlayerProfile(val uuid: UUID) {
     /** 最近一次成功写入数据库的载荷，用于跳过无变化的自动保存 */
     @Volatile
     var lastSavedPayload: String = ""
+
+    /**
+     * 档案对应的在线玩家；仅在线期间非空。
+     *
+     * IO 线程需要判断“这条离线写库是否应该改成在线发放”时读取它，
+     * 避免在 IO 线程上遍历在线玩家表。
+     */
+    @Volatile
+    var player: Player? = null
+
+    /**
+     * 档案已加载/加载中，但发放请求需要暂存时使用的队列。
+     *
+     * 只在玩家区域线程入队与 drain；加载完成回调也投递回该线程后再 drain。
+     * 使用并发队列是为了让“入队在实体线程、排空在实体线程”的交接不需要额外加锁。
+     */
+    val pendingGives: ConcurrentLinkedQueue<PendingGive> = ConcurrentLinkedQueue()
 }
+
+/**
+ * 一条待发放的能量请求。
+ *
+ * 档案尚未加载完成时先入队，加载完成后再应用到内存；
+ * 若档案在加载完成前被卸载，则由 IO 任务写入数据库。
+ *
+ * @param amount     发放点数（已校验为有限正数）
+ * @param sender     发起发放的命令发送者，用于回执
+ * @param senderName 发送者名字，用于控制台日志
+ */
+class PendingGive(
+    val amount: Double,
+    val sender: CommandSender,
+    val senderName: String
+)
