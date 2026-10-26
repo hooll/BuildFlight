@@ -8,6 +8,8 @@ import cn.stingcraft.buildflight.database.EnergyStorage
 import cn.stingcraft.buildflight.database.LoadResult
 import cn.stingcraft.buildflight.util.Scheduler
 import cn.stingcraft.buildflight.util.formatEnergy
+import org.bukkit.Bukkit
+import org.bukkit.OfflinePlayer
 import org.bukkit.command.CommandSender
 import org.bukkit.command.ConsoleCommandSender
 import org.bukkit.entity.Player
@@ -15,6 +17,7 @@ import taboolib.common.platform.function.info
 import taboolib.common.platform.function.warning
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.ScheduledFuture
 
 /**
@@ -218,13 +221,57 @@ object EnergyManager {
     }
 
     /**
+     * 命令线程入口：先按在线玩家精确匹配；不在线时把**可能访问磁盘**的离线解析
+     * 丢到 IO 线程（`Bukkit.getOfflinePlayers()` 会遍历 playerdata 目录），
+     * 命令线程与玩家实体线程都不做文件 IO。
+     */
+    fun giveByTargetName(name: String, amount: Double, sender: CommandSender) {
+        Bukkit.getPlayerExact(name)?.let {
+            giveOnline(it, amount, sender)
+            return
+        }
+        Bukkit.getOnlinePlayers()
+            .firstOrNull { it.name.equals(name, ignoreCase = true) }
+            ?.let {
+                giveOnline(it, amount, sender)
+                return
+            }
+
+        if (!EnergyStorage.isReady()) {
+            replyGive(sender, "give-data-failed", "player" to name)
+            return
+        }
+        val queued = EnergyStorage.submit {
+            val target = runCatching { findPlayedBefore(name) }.getOrElse {
+                warning("[BuildFlight] 解析离线玩家 $name 失败: $it")
+                replyGive(sender, "give-lookup-failed", "player" to name)
+                return@submit
+            }
+            if (target == null) {
+                replyGive(sender, "give-player-unknown", "player" to name)
+                return@submit
+            }
+            submitOfflineWrite(target.uniqueId, target.name ?: name, amount, sender, 0)
+        }
+        if (!queued) {
+            replyGive(sender, "give-data-failed", "player" to name)
+        }
+    }
+
+    /** 只在 IO 线程调用：遍历服务端缓存的离线玩家，只认曾经进服过的名字。 */
+    private fun findPlayedBefore(name: String): OfflinePlayer? =
+        Bukkit.getOfflinePlayers().firstOrNull { candidate ->
+            candidate.hasPlayedBefore() && candidate.name?.equals(name, ignoreCase = true) == true
+        }
+
+    /**
      * 给在线玩家发放能量。
      *
      * 真正的档案操作投递到目标所属实体线程；档案尚未创建时改走离线写库，
      * 由 IO 任务重新检查档案是否已经出现（见 [submitOfflineWrite]）。
      */
     fun giveOnline(player: Player, amount: Double, sender: CommandSender) {
-        giveOnline(player, amount, sender, 0)
+        dispatchOnline(player, amount, sender, 0)
     }
 
     /** 给离线（或档案尚未就绪）的玩家发放能量，必须等数据库写入成功才回复成功。 */
@@ -232,22 +279,58 @@ object EnergyManager {
         submitOfflineWrite(uuid, name, amount, sender, 0)
     }
 
-    private fun giveOnline(player: Player, amount: Double, sender: CommandSender, depth: Int) {
-        Scheduler.runOnEntity(player) {
-            val profile = profiles[player.uniqueId]
-            if (profile == null) {
-                // 进服事件还没创建档案，或玩家在投递途中退出：走离线写库。
-                submitOfflineWrite(player.uniqueId, player.name, amount, sender, depth + 1)
-                return@runOnEntity
+    /**
+     * 把发放投递到目标实体线程。
+     *
+     * Folia 的实体任务在玩家退休后不会再执行，因此必须用带终态的调度：
+     * `action` 与 `retired` 只能有一个生效，一次性开关保证同一请求不会被
+     * 回复或落库两次；退休时转离线流程，绝不静默丢弃。
+     */
+    private fun dispatchOnline(player: Player, amount: Double, sender: CommandSender, depth: Int) {
+        if (depth > MAX_HANDOFF) {
+            replyGive(sender, "give-data-failed", "player" to player.name)
+            warning("[BuildFlight] 向 ${player.name} 的发放交接次数超限，已放弃")
+            return
+        }
+        val completed = AtomicBoolean(false)
+        fun finishOnce(block: () -> Unit) {
+            if (completed.compareAndSet(false, true)) block()
+        }
+        Scheduler.runOnEntityOrElse(
+            player,
+            action = {
+                finishOnce {
+                    if (!player.isOnline) {
+                        // 投递途中退出：改走离线写库（IO 线程会重新判断档案是否还在）
+                        submitOfflineWrite(player.uniqueId, player.name, amount, sender, depth + 1)
+                    } else {
+                        applyOnline(player, amount, sender, depth)
+                    }
+                }
+            },
+            retired = {
+                finishOnce {
+                    submitOfflineWrite(player.uniqueId, player.name, amount, sender, depth + 1)
+                }
             }
-            profile.pendingGives.add(PendingGive(amount, sender, senderName(sender)))
-            // 未加载完成时留给加载回调 drain；已加载则立刻在实体线程上应用。
-            if (!profile.loaded) return@runOnEntity
-            if (profile.loadFailed) {
-                failAllPending(profile, player.name)
-            } else {
-                drainOnline(player, profile)
-            }
+        )
+    }
+
+    /** 在玩家实体线程上把发放交给档案；档案实例与玩家会话必须仍然匹配。 */
+    private fun applyOnline(player: Player, amount: Double, sender: CommandSender, depth: Int) {
+        val profile = profiles[player.uniqueId]
+        if (profile == null || profile.player !== player) {
+            // 进服事件还没创建档案，或档案已被新会话顶替：交给离线写库重新判断
+            submitOfflineWrite(player.uniqueId, player.name, amount, sender, depth + 1)
+            return
+        }
+        profile.pendingGives.add(PendingGive(amount, sender, senderName(sender)))
+        // 未加载完成时留给加载回调 drain；已加载则立刻在实体线程上应用。
+        if (!profile.loaded) return
+        if (profile.loadFailed) {
+            failAllPending(profile, player.name)
+        } else {
+            drainOnline(player, profile)
         }
     }
 
@@ -263,15 +346,24 @@ object EnergyManager {
             warning("[BuildFlight] 能量数据库未就绪，取消向 $name 发放 ${formatEnergy(amount)} 点能量")
             return
         }
-        EnergyStorage.submit {
+        val queued = EnergyStorage.submit {
             // 档案在 IO 排队期间被创建：转回实体线程按在线规则发放。
             val profile = profiles[uuid]
             val online = profile?.player
-            if (profile != null && online != null && online.isOnline && depth < MAX_HANDOFF) {
-                giveOnline(online, amount, sender, depth)
+            if (profile != null && online != null && online.isOnline) {
+                if (depth > MAX_HANDOFF) {
+                    // 绝不能在这里直接写库：随后在线档案的保存会用内存值覆盖它。
+                    replyGive(sender, "give-data-failed", "player" to name)
+                    warning("[BuildFlight] 向 $name 的发放在线/离线之间交接次数超限，已放弃（不直接写库）")
+                    return@submit
+                }
+                dispatchOnline(online, amount, sender, depth + 1)
                 return@submit
             }
             applyOfflineWrite(uuid, name, amount, sender)
+        }
+        if (!queued) {
+            replyGive(sender, "give-data-failed", "player" to name)
         }
     }
 

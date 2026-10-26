@@ -38,6 +38,7 @@ object PluginMessages {
         "give-success" to "&a已给予 &f{player} &e{points} &a点能量（当前 &e{energy}&a）。",
         "give-received" to "&a你获得了 &e{points} &a点建筑飞行能量（当前 &e{energy}&a）。",
         "give-player-unknown" to "&c找不到玩家 &f{player} &c（从未在本服出现过）。",
+        "give-lookup-failed" to "&c解析玩家 &f{player} &c失败，未发放。",
         "give-invalid-amount" to "&c能量点数必须是大于 0 的数字: &f{input}",
         "give-data-failed" to "&c目标玩家 &f{player} &c的能量数据不可用，未发放。",
         "give-save-failed" to "&c向 &f{player} &c发放 &e{points} &c点能量失败，未写入数据库。",

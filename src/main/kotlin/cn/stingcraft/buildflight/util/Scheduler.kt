@@ -101,6 +101,71 @@ object Scheduler {
     }
 
     /**
+     * 一次性实体任务，带明确终态。
+     *
+     * 契约：`action` 与 `retired` **恰好有一个**会被调用，只调用一次。
+     * 返回 false 表示调度没有接受任务（实体已退休、插件已卸载等），此时 `retired`
+     * 已在本调用内同步执行过，调用方无需再补一次失败处理。
+     *
+     * 用于发放这类“不能静默丢失”的操作：Folia 的实体任务在玩家退出后不会再执行，
+     * 原来 `runOnEntity` 的 retired 是空 Runnable，请求会凭空消失。
+     */
+    fun runOnEntityOrElse(
+        player: Player,
+        action: () -> Unit,
+        retired: () -> Unit
+    ): Boolean {
+        val plugin = bukkitPlugin
+        if (plugin == null) {
+            runCatching { retired() }
+            return false
+        }
+        if (isFolia) {
+            val scheduler = entityScheduler(player)
+            if (scheduler == null) {
+                runCatching { retired() }
+                return false
+            }
+            val method = runCatching {
+                entitySchedulerClass?.getMethod(
+                    "run",
+                    org.bukkit.plugin.Plugin::class.java,
+                    Consumer::class.java,
+                    Runnable::class.java
+                )
+            }.getOrNull()
+            if (method == null) {
+                runCatching { retired() }
+                return false
+            }
+            val task = runCatching {
+                method.invoke(
+                    scheduler,
+                    plugin,
+                    Consumer<Any?> { runCatching(action).onFailure { warnOnce("实体任务执行失败: ${it.message}") } },
+                    Runnable { runCatching(retired) }
+                )
+            }.getOrElse {
+                warnOnce("提交 Folia 实体任务失败: ${it.message}")
+                runCatching { retired() }
+                return false
+            }
+            // 实体已退休时 Folia 会立即执行 retired 并返回 null
+            return task != null
+        }
+        return runCatching {
+            Bukkit.getScheduler().runTask(
+                plugin,
+                Runnable { runCatching(action).onFailure { warnOnce("主线程任务执行失败: ${it.message}") } }
+            )
+            true
+        }.getOrElse {
+            runCatching { retired() }
+            false
+        }
+    }
+
+    /**
      * 在玩家所属的区域线程上按固定周期执行任务。
      * 返回的句柄必须在玩家退出、飞行关闭或插件卸载时取消。
      */

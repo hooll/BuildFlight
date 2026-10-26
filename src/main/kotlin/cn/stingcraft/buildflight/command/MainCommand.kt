@@ -14,7 +14,6 @@ import taboolib.common.platform.command.PermissionDefault
 import taboolib.common.platform.command.mainCommand
 import taboolib.common.platform.command.subCommand
 import taboolib.common.platform.function.warning
-import java.util.UUID
 
 /**
  * /bflight 与 /bf。
@@ -32,12 +31,6 @@ object MainCommand {
 
     fun ensureLoaded() {
         // 触发对象初始化，完成 TabooLib 命令注册
-    }
-
-    /** 目标玩家解析结果：在线玩家直接投递到其区域线程，离线玩家走数据库写库。 */
-    private sealed interface GiveTarget {
-        class Online(val player: Player) : GiveTarget
-        class Offline(val uuid: UUID, val name: String) : GiveTarget
     }
 
     @CommandBody
@@ -110,33 +103,12 @@ object MainCommand {
         }
 
         val name = rawName.trim()
-        val target = resolveTarget(name)
-        if (target == null) {
+        if (name.isEmpty()) {
             PluginMessages.send(sender, "give-player-unknown", "player" to name)
             return
         }
-
-        when (target) {
-            is GiveTarget.Online -> EnergyManager.giveOnline(target.player, amount, sender)
-            is GiveTarget.Offline -> EnergyManager.giveOffline(target.uuid, target.name, amount, sender)
-        }
-    }
-
-    /**
-     * 先精确匹配在线玩家，再忽略大小写匹配在线玩家；
-     * 都不在则只在“曾进服过”的离线玩家缓存里找，找不到返回 null。
-     */
-    private fun resolveTarget(name: String): GiveTarget? {
-        if (name.isEmpty()) return null
-        Bukkit.getPlayerExact(name)?.let { return GiveTarget.Online(it) }
-        Bukkit.getOnlinePlayers()
-            .firstOrNull { it.name.equals(name, ignoreCase = true) }
-            ?.let { return GiveTarget.Online(it) }
-
-        val offline = Bukkit.getOfflinePlayers().firstOrNull { candidate ->
-            candidate.hasPlayedBefore() &&
-                candidate.name?.equals(name, ignoreCase = true) == true
-        } ?: return null
-        return GiveTarget.Offline(offline.uniqueId, offline.name ?: name)
+        // 在线匹配在命令线程完成；离线名字解析会读 playerdata 目录，
+        // 由 EnergyManager 投递到具名 IO 线程，命令线程不做文件 IO。
+        EnergyManager.giveByTargetName(name, amount, sender)
     }
 }
