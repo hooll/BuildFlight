@@ -5,6 +5,7 @@ import org.bukkit.entity.Player
 import taboolib.common.platform.function.warning
 import taboolib.platform.Folia
 import java.lang.reflect.Method
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.Consumer
 
 /**
@@ -103,9 +104,21 @@ object Scheduler {
     /**
      * 一次性实体任务，带明确终态。
      *
-     * 契约：`action` 与 `retired` **恰好有一个**会被调用，只调用一次。
-     * 返回 false 表示调度没有接受任务（实体已退休、插件已卸载等），此时 `retired`
-     * 已在本调用内同步执行过，调用方无需再补一次失败处理。
+     * 契约：`action` 与 `retired` **恰好有一个**会被调用，且只调用一次。
+     * 四种结果全部收敛到同一个原子门：
+     *  1. 调度接受 → 由调度器触发 `action`（或实体随后退休时触发 `retired`）；
+     *  2. 调度器返回 null → 本方法立即补一次 `retired`；
+     *  3. 调度器不可用 / 反射失败 / 提交异常 → 立即补一次 `retired`；
+     *  4. 插件已卸载 → 立即补一次 `retired`。
+     *
+     * 返回 true 表示调度已接受（后续由调度器回调），false 表示已在本次调用内
+     * 完成 `retired`，调用方无需（也不应）再补一次失败处理。
+     *
+     * 关于 null：对本机 26.3 服务端字节码核对确认，
+     * `FoliaEntityScheduler.run → runDelayed → scheduleInternal` 在实体已退休
+     * （`tickCount == -1`）时**直接返回 null 且不执行任何回调**——
+     * 既不会调用 run，也不会调用 retired。因此 null 绝不能被当成
+     * “调度器已经处理过 retired”，必须由这里补上终态，否则请求会静默消失。
      *
      * 用于发放这类“不能静默丢失”的操作：Folia 的实体任务在玩家退出后不会再执行，
      * 原来 `runOnEntity` 的 retired 是空 Runnable，请求会凭空消失。
@@ -115,15 +128,19 @@ object Scheduler {
         action: () -> Unit,
         retired: () -> Unit
     ): Boolean {
+        val finished = AtomicBoolean(false)
+        val safeAction = { if (finished.compareAndSet(false, true)) action() }
+        val safeRetired = { if (finished.compareAndSet(false, true)) retired() }
+
         val plugin = bukkitPlugin
         if (plugin == null) {
-            runCatching { retired() }
+            runCatching { safeRetired() }
             return false
         }
         if (isFolia) {
             val scheduler = entityScheduler(player)
             if (scheduler == null) {
-                runCatching { retired() }
+                runCatching { safeRetired() }
                 return false
             }
             val method = runCatching {
@@ -135,32 +152,36 @@ object Scheduler {
                 )
             }.getOrNull()
             if (method == null) {
-                runCatching { retired() }
+                runCatching { safeRetired() }
                 return false
             }
             val task = runCatching {
                 method.invoke(
                     scheduler,
                     plugin,
-                    Consumer<Any?> { runCatching(action).onFailure { warnOnce("实体任务执行失败: ${it.message}") } },
-                    Runnable { runCatching(retired) }
+                    Consumer<Any?> { runCatching(safeAction).onFailure { warnOnce("实体任务执行失败: ${it.message}") } },
+                    Runnable { runCatching(safeRetired) }
                 )
             }.getOrElse {
                 warnOnce("提交 Folia 实体任务失败: ${it.message}")
-                runCatching { retired() }
+                runCatching { safeRetired() }
                 return false
             }
-            // 实体已退休时 Folia 会立即执行 retired 并返回 null
-            return task != null
+            if (task == null) {
+                // 实体已退休：调度器不执行任何回调，由这里补终态（原子门保证只补一次）
+                runCatching { safeRetired() }
+                return false
+            }
+            return true
         }
         return runCatching {
             Bukkit.getScheduler().runTask(
                 plugin,
-                Runnable { runCatching(action).onFailure { warnOnce("主线程任务执行失败: ${it.message}") } }
+                Runnable { runCatching(safeAction).onFailure { warnOnce("主线程任务执行失败: ${it.message}") } }
             )
             true
         }.getOrElse {
-            runCatching { retired() }
+            runCatching { safeRetired() }
             false
         }
     }
