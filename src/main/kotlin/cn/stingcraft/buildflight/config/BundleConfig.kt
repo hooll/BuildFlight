@@ -161,9 +161,10 @@ object BundleConfig {
                 skip(id, "items 中重复配置了材料 $material")
                 return null
             }
-            val amount = itemSection.getInt(key, 0)
-            if (amount <= 0) {
-                skip(id, "items.$key 的数量必须是正整数")
+            val rawAmount = itemSection.get(key)
+            val amount = parseAmount(rawAmount)
+            if (amount == null) {
+                skip(id, "items.$key 的数量必须是 1 到 ${Int.MAX_VALUE} 的整数（实际为 $rawAmount）")
                 return null
             }
             items += BundleItem(material, amount)
@@ -187,6 +188,23 @@ object BundleConfig {
         }
 
         return BundleEntry(id, name, icon, points, items.toList())
+    }
+
+    /**
+     * 严格解析套餐数量：只接受正整数。
+     *
+     * 不能用 `getInt`：它先把值转成 Int 再返回，于是 `1.9` 被截断成 1、
+     * `4294967297` 被截断成 1，坏配置会被当成合法小套餐结算。
+     * 这里只认 Int / 范围内的 Long / 整数文本；小数、超界、非数一律返回 null，
+     * 由调用方整条跳过该套餐并记 warning。
+     */
+    private fun parseAmount(raw: Any?): Int? = when (raw) {
+        is Int -> raw.takeIf { it > 0 }
+        is Long -> raw.takeIf { it in 1..Int.MAX_VALUE.toLong() }?.toInt()
+        is Short -> raw.toInt().takeIf { it > 0 }
+        is Byte -> raw.toInt().takeIf { it > 0 }
+        is String -> raw.trim().toIntOrNull()?.takeIf { it > 0 }
+        else -> null
     }
 
     private fun skip(id: String, reason: String) {
