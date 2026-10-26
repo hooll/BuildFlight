@@ -75,23 +75,45 @@ object EnergyStorage {
         if (!ready || db == null) return LoadResult.Failed
         return runCatching {
             val raw = db.get(uuid.toString(), KEY)
-            if (raw.isNullOrBlank()) {
-                LoadResult.Missing
-            } else {
-                val energyPart = raw.substringBefore('|')
-                val energy = energyPart.toDoubleOrNull()
-                if (energy == null || !energy.isFinite() || energy < 0.0) {
-                    warning("[BuildFlight] 玩家 $uuid 的能量记录损坏: $raw")
-                    LoadResult.Missing
-                } else {
-                    val combatUntil = raw.substringAfter('|', "0").toLongOrNull() ?: 0L
-                    LoadResult.Loaded(energy, combatUntil.coerceAtLeast(0L))
+            when {
+                // 真正没有记录：可以按新档案创建
+                raw == null -> LoadResult.Missing
+                // 有记录但是空串：属于损坏，不能当作“无记录”覆盖
+                raw.isBlank() -> {
+                    warning("[BuildFlight] 玩家 $uuid 的能量记录为空，按损坏处理，本次不覆盖原数据")
+                    LoadResult.Failed
                 }
+                else -> parsePayload(uuid, raw)
             }
         }.getOrElse {
             warning("[BuildFlight] 读取玩家 $uuid 的能量失败: $it")
             LoadResult.Failed
         }
+    }
+
+    /**
+     * 解析 `能量|战斗冷却` 载荷。
+     *
+     * 旧版本只存能量（没有 `|`），仍然按“冷却 0”兼容；
+     * 但只要字段存在却不合法，就返回 [LoadResult.Failed] 并保留原数据——
+     * 绝不能当成 `Missing`，否则离线发放会用 0 覆盖掉玩家的真实余额。
+     */
+    private fun parsePayload(uuid: UUID, raw: String): LoadResult {
+        val energy = raw.substringBefore('|').trim().toDoubleOrNull()
+        if (energy == null || !energy.isFinite() || energy < 0.0) {
+            warning("[BuildFlight] 玩家 $uuid 的能量记录损坏（$raw），本次不覆盖原数据")
+            return LoadResult.Failed
+        }
+        val combatUntil = if (raw.contains('|')) {
+            raw.substringAfter('|').trim().toLongOrNull()
+        } else {
+            0L
+        }
+        if (combatUntil == null || combatUntil < 0L) {
+            warning("[BuildFlight] 玩家 $uuid 的战斗冷却记录损坏（$raw），本次不覆盖原数据")
+            return LoadResult.Failed
+        }
+        return LoadResult.Loaded(energy, combatUntil)
     }
 
     fun save(uuid: UUID, payload: String): Boolean {
@@ -106,12 +128,19 @@ object EnergyStorage {
         }
     }
 
-    fun submit(task: () -> Unit) {
-        val ex = executor ?: return
-        ex.execute {
-            runCatching(task).onFailure {
-                warning("[BuildFlight] IO 任务执行失败: $it")
+    /** 提交 IO 任务；返回 false 表示执行器不可用（未初始化或已关闭），调用方必须给出失败回执。 */
+    fun submit(task: () -> Unit): Boolean {
+        val ex = executor ?: return false
+        return runCatching {
+            ex.execute {
+                runCatching(task).onFailure {
+                    warning("[BuildFlight] IO 任务执行失败: $it")
+                }
             }
+            true
+        }.getOrElse {
+            warning("[BuildFlight] 提交 IO 任务失败: $it")
+            false
         }
     }
 

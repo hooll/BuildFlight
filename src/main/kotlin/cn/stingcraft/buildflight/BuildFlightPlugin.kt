@@ -1,6 +1,7 @@
 package cn.stingcraft.buildflight
 
 import cn.stingcraft.buildflight.command.MainCommand
+import cn.stingcraft.buildflight.config.BundleConfig
 import cn.stingcraft.buildflight.config.PluginConfig
 import cn.stingcraft.buildflight.config.PluginMessages
 import cn.stingcraft.buildflight.database.EnergyStorage
@@ -26,6 +27,7 @@ object BuildFlightPlugin : Plugin() {
     override fun onEnable() {
         PluginConfig.load()
         PluginMessages.load()
+        BundleConfig.load()
         // Dominion 是可选依赖：未安装时 hook 自行降级，不影响后续初始化。
         DominionHook.init()
 
@@ -67,6 +69,7 @@ object BuildFlightPlugin : Plugin() {
         try {
             PluginConfig.reload()
             PluginMessages.reload()
+            BundleConfig.reload()
             // 配置里的 dominion.enabled/mode/deny-when-missing 立即生效；
             // 已飞行/暂停的玩家由下一次 tick 收敛。
             DominionHook.init()

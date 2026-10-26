@@ -1,8 +1,11 @@
 package cn.stingcraft.buildflight.ui
 
+import cn.stingcraft.buildflight.config.BundleConfig
+import cn.stingcraft.buildflight.config.BundleEntry
 import cn.stingcraft.buildflight.config.ExchangeEntry
 import cn.stingcraft.buildflight.config.PluginConfig
 import cn.stingcraft.buildflight.config.PluginMessages
+import cn.stingcraft.buildflight.config.displayName
 import cn.stingcraft.buildflight.data.PlayerProfile
 import cn.stingcraft.buildflight.manager.EnergyManager
 import cn.stingcraft.buildflight.manager.ExchangeManager
@@ -25,6 +28,12 @@ import taboolib.platform.util.buildItem
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
+/** 面板里的一项可兑换内容：套餐排在材料之前。 */
+sealed interface Offer {
+    data class Bundle(val entry: BundleEntry) : Offer
+    data class Material(val entry: ExchangeEntry) : Offer
+}
+
 /**
  * 建筑飞行主面板。
  *
@@ -32,12 +41,14 @@ import java.util.concurrent.ConcurrentHashMap
  *  4            当前能量状态
  *  11           一键存入全部可兑换材料
  *  15           飞行开关
- *  19..25 / 28..34 / 37..43  当前页材料按钮（每页 21 项）
+ *  19..25 / 28..34 / 37..43  当前页套餐与材料按钮（每页 21 项）
  *  45 / 49 / 53 上一页 / 页码 / 下一页
+ *
+ * 列表顺序固定为“套餐（配置顺序）→ 材料（配置顺序）”，共用同一套分页。
  *
  * 构建顺序是显式的：
  *  1. onInventoryCreate 先铺玻璃，再画固定按钮和翻页按钮；
- *  2. PageableChest 的 finalBuild 只把当前页元素写进材料槽位。
+ *  2. PageableChest 的 finalBuild 只把当前页元素写进列表槽位。
  *
  * 不使用 set(Int, ItemStack) 铺玻璃：TabooLib 6.3.0 的 ChestImpl.onBuild
  * 会把新回调包在旧回调前面执行，先注册的玻璃最后执行，从而覆盖后注册的按钮。
@@ -65,26 +76,24 @@ object ExchangeMenu {
     private val PAGE_SIZE: Int = MATERIAL_SLOTS.size
 
     /** 当前打开的 BuildFlight 菜单，用于配置重载后只刷新自己的界面。 */
-    private val sessions = ConcurrentHashMap<UUID, PageableChest<ExchangeEntry>>()
+    private val sessions = ConcurrentHashMap<UUID, PageableChest<Offer>>()
 
     fun open(player: Player, page: Int = 0) {
         if (!player.isOnline) return
         val profile = EnergyManager.profile(player.uniqueId)
         val activeProfile = readyProfile(profile)
-        val entries = if (activeProfile != null) PluginConfig.entries() else emptyList()
-        val currentPage = clampPage(page, entries.size)
-        val counts = if (activeProfile != null) countMaterials(player, entries) else emptyMap()
-        val materialItems: Map<ExchangeEntry, ItemStack> = if (activeProfile != null) {
-            entries.associateWith { entry ->
-                materialItem(player, entry, counts[entry.material] ?: 0, activeProfile)
-            }
+        val offers = if (activeProfile != null) collectOffers() else emptyList()
+        val currentPage = clampPage(page, offers.size)
+        val counts = if (activeProfile != null) countMaterials(player, offers) else emptyMap()
+        val offerItems: Map<Offer, ItemStack> = if (activeProfile != null) {
+            offers.associateWith { offer -> offerItem(player, offer, counts, activeProfile) }
         } else {
             emptyMap()
         }
         val status = statusText(player, profile)
 
-        lateinit var menu: PageableChest<ExchangeEntry>
-        player.openMenu<PageableChest<ExchangeEntry>>(PluginMessages.text("gui-title")) {
+        lateinit var menu: PageableChest<Offer>
+        player.openMenu<PageableChest<Offer>>(PluginMessages.text("gui-title")) {
             menu = this
             rows(MENU_ROWS)
             menuLocked(true)
@@ -93,23 +102,28 @@ object ExchangeMenu {
             onClick(true) { }
             slots(MATERIAL_SLOTS)
             page(currentPage)
-            elements { if (activeProfile != null) entries else emptyList() }
+            elements { if (activeProfile != null) offers else emptyList() }
 
             // 同步生成；物品模板已在实体线程预生成，构建回调只克隆，不读配置或背包
-            onGenerate(async = false) { _, entry, _, _ ->
-                materialItems[entry]?.clone() ?: ItemStack(Material.AIR)
+            onGenerate(async = false) { _, offer, _, _ ->
+                offerItems[offer]?.clone() ?: ItemStack(Material.AIR)
             }
 
             onInventoryCreate { inventory ->
-                paintLayout(inventory, profile, activeProfile, status, entries.size, currentPage)
+                paintLayout(inventory, profile, activeProfile, status, offers.size, currentPage)
             }
 
             onClose {
                 sessions.remove(player.uniqueId, menu)
             }
 
-            onClick { event, entry ->
-                handleMaterialClick(player, event, entry, menu, activeProfile)
+            onClick { event, offer ->
+                when (offer) {
+                    is Offer.Material ->
+                        handleMaterialClick(player, event, offer.entry, menu, activeProfile)
+                    is Offer.Bundle ->
+                        handleBundleClick(player, event, offer.entry, menu, activeProfile)
+                }
             }
 
             onClick(DEPOSIT_SLOT) { event ->
@@ -124,12 +138,12 @@ object ExchangeMenu {
                 FlightManager.toggle(player) { refresh(player, menu, menu.page) }
             }
 
-            if (entries.size > PAGE_SIZE) {
+            if (offers.size > PAGE_SIZE) {
                 onClick(PREVIOUS_PAGE_SLOT) { event ->
                     if (!isLeftClick(event)) return@onClick
-                    val total = if (activeProfile != null) PluginConfig.entries().size else 0
+                    val total = if (activeProfile != null) offerCount() else 0
                     if (total <= 0) {
-                        if (entries.isNotEmpty()) refresh(player, menu, 0)
+                        if (offers.isNotEmpty()) refresh(player, menu, 0)
                         return@onClick
                     }
                     val current = clampPage(menu.page, total)
@@ -143,9 +157,9 @@ object ExchangeMenu {
 
                 onClick(NEXT_PAGE_SLOT) { event ->
                     if (!isLeftClick(event)) return@onClick
-                    val total = if (activeProfile != null) PluginConfig.entries().size else 0
+                    val total = if (activeProfile != null) offerCount() else 0
                     if (total <= 0) {
-                        if (entries.isNotEmpty()) refresh(player, menu, 0)
+                        if (offers.isNotEmpty()) refresh(player, menu, 0)
                         return@onClick
                     }
                     val current = clampPage(menu.page, total)
@@ -184,6 +198,13 @@ object ExchangeMenu {
     fun clearSession(player: Player) {
         sessions.remove(player.uniqueId)
     }
+
+    /** 套餐在前、材料在后，各自保持配置文件里的顺序。 */
+    private fun collectOffers(): List<Offer> =
+        BundleConfig.entries().map { Offer.Bundle(it) } +
+            PluginConfig.entries().map { Offer.Material(it) }
+
+    private fun offerCount(): Int = BundleConfig.entries().size + PluginConfig.entries().size
 
     private fun paintLayout(
         inventory: Inventory,
@@ -235,7 +256,7 @@ object ExchangeMenu {
         player: Player,
         event: ClickEvent,
         entry: ExchangeEntry,
-        session: PageableChest<ExchangeEntry>,
+        session: PageableChest<Offer>,
         activeProfile: PlayerProfile?
     ) {
         val click = event.clickEventOrNull() ?: return
@@ -255,12 +276,48 @@ object ExchangeMenu {
         refresh(player, session, session.page)
     }
 
+    /**
+     * 套餐按钮点击。
+     *
+     * 点击时重新按 id 取当前配置：条目被删除或内容（价格/需求）变化时只刷新，
+     * 绝不按旧按钮上的价格结算。
+     */
+    private fun handleBundleClick(
+        player: Player,
+        event: ClickEvent,
+        bundle: BundleEntry,
+        session: PageableChest<Offer>,
+        activeProfile: PlayerProfile?
+    ) {
+        val click = event.clickEventOrNull() ?: return
+        if (activeProfile == null) return
+        val current = BundleConfig.byId(bundle.id)
+        if (current != bundle) {
+            refresh(player, session, session.page)
+            return
+        }
+        val requested = when (click.click) {
+            ClickType.LEFT, ClickType.RIGHT -> 1
+            ClickType.SHIFT_LEFT -> Int.MAX_VALUE
+            else -> return
+        }
+        ExchangeManager.exchangeBundle(player, current, requested)
+        refresh(player, session, session.page)
+    }
+
     private fun isLeftClick(event: ClickEvent): Boolean =
         event.clickEventOrNull()?.click == ClickType.LEFT
 
-    private fun countMaterials(player: Player, entries: List<ExchangeEntry>): Map<Material, Int> {
-        if (entries.isEmpty()) return emptyMap()
-        val wanted = entries.mapTo(HashSet(entries.size)) { it.material }
+    /** 一次扫描主背包，统计所有套餐与材料需求涉及的物品数量。 */
+    private fun countMaterials(player: Player, offers: List<Offer>): Map<Material, Int> {
+        if (offers.isEmpty()) return emptyMap()
+        val wanted = HashSet<Material>()
+        for (offer in offers) {
+            when (offer) {
+                is Offer.Material -> wanted += offer.entry.material
+                is Offer.Bundle -> offer.entry.items.forEach { wanted += it.material }
+            }
+        }
         val counts = HashMap<Material, Int>()
         for (stack in player.inventory.storageContents) {
             if (stack != null && stack.type in wanted) {
@@ -278,6 +335,18 @@ object ExchangeMenu {
 
     private fun readyProfile(profile: PlayerProfile?): PlayerProfile? =
         profile?.takeIf { it.loaded && !it.loadFailed }
+
+    private fun offerItem(
+        player: Player,
+        offer: Offer,
+        counts: Map<Material, Int>,
+        profile: PlayerProfile
+    ): ItemStack = when (offer) {
+        is Offer.Material ->
+            materialItem(player, offer.entry, counts[offer.entry.material] ?: 0, profile)
+        is Offer.Bundle ->
+            bundleItem(player, offer.entry, counts)
+    }
 
     private fun energyItem(profile: PlayerProfile?, status: String): ItemStack =
         buildItem(Material.EXPERIENCE_BOTTLE) {
@@ -329,6 +398,63 @@ object ExchangeMenu {
         )
     }
 
+    /**
+     * 套餐按钮：奖励 → 逐项需求（拥有/需要）→ 单件合计与折扣对比 → 点击说明。
+     *
+     * 只有全部需求材料都在单件兑换表里时才显示对比，避免拿不完整的合计误导玩家；
+     * 套餐比单件贵时如实提示“比单件少”。
+     */
+    private fun bundleItem(
+        player: Player,
+        bundle: BundleEntry,
+        counts: Map<Material, Int>
+    ): ItemStack {
+        val lines = mutableListOf<String>()
+        lines += PluginMessages.textList("gui-bundle-lore", "points" to formatEnergy(bundle.points))
+        for (item in bundle.items) {
+            val have = counts[item.material] ?: 0
+            val key = if (have >= item.amount) {
+                "gui-bundle-requirement-ok"
+            } else {
+                "gui-bundle-requirement-lack"
+            }
+            lines += PluginMessages.text(
+                key,
+                "material" to localizedMaterialName(player, item.material),
+                "need" to item.amount,
+                "have" to have
+            )
+        }
+        val base = bundle.basePoints(PluginConfig.materialPoints())
+        if (base != null) {
+            lines += PluginMessages.text("gui-bundle-compare", "base" to formatEnergy(base))
+            when {
+                bundle.points > base -> {
+                    val bonus = bundle.points - base
+                    val percent = if (base > 0.0) bonus / base * 100.0 else 0.0
+                    lines += PluginMessages.text(
+                        "gui-bundle-bonus",
+                        "bonus" to formatEnergy(bonus),
+                        "percent" to formatEnergy(percent)
+                    )
+                }
+
+                bundle.points < base -> {
+                    lines += PluginMessages.text(
+                        "gui-bundle-penalty",
+                        "diff" to formatEnergy(base - bundle.points)
+                    )
+                }
+            }
+        }
+        lines += PluginMessages.textList("gui-bundle-lore-footer")
+
+        return buildItem(bundle.displayIcon) {
+            name = bundle.displayName()
+            lore += lines
+        }
+    }
+
     private fun fillerItem(): ItemStack = buildItem(Material.GRAY_STAINED_GLASS_PANE) {
         name = " "
     }
@@ -374,7 +500,7 @@ object ExchangeMenu {
                 "pages" to pages
             )
             lore += PluginMessages.textList(
-                "gui-page-indicator-lore",
+                "gui-offer-indicator-lore",
                 "page" to page,
                 "pages" to pages,
                 "total" to total,
@@ -405,14 +531,14 @@ object ExchangeMenu {
      * 下一次实体 tick 重开菜单，并确认玩家仍停留在同一个菜单实例上。
      * 新会话会创建新的菜单实例，旧回调因此不会覆盖新界面。
      */
-    private fun refresh(player: Player, session: PageableChest<ExchangeEntry>, page: Int) {
+    private fun refresh(player: Player, session: PageableChest<Offer>, page: Int) {
         Scheduler.runOnEntity(player) {
             if (!isCurrentSession(player, session)) return@runOnEntity
             open(player, page)
         }
     }
 
-    private fun isCurrentSession(player: Player, session: PageableChest<ExchangeEntry>): Boolean {
+    private fun isCurrentSession(player: Player, session: PageableChest<Offer>): Boolean {
         if (!player.isOnline) return false
         val holder = player.openInventory.topInventory.holder as? MenuHolder ?: return false
         return holder.menu === session

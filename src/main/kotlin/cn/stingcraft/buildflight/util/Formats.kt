@@ -3,15 +3,27 @@ package cn.stingcraft.buildflight.util
 import org.bukkit.Material
 import org.bukkit.entity.Player
 import taboolib.module.nms.MinecraftLanguage
+import java.math.BigDecimal
 import java.util.Locale
 
-/** 能量显示：整数不带小数，小数保留一位。 */
+/**
+ * 能量显示：整数不带小数，小数保留一位。
+ *
+ * 发放接受任意有限正 Double，余额可能超过 Long 上限；此时绝不能用 `toLong()`
+ * （Kotlin 会把它钳到 `Long.MAX_VALUE`，显示成 9223372036854775807），
+ * 改为输出能表示实际数量的精确十进制。回执、日志与 GUI 共用本函数，口径一致。
+ */
 fun formatEnergy(value: Double): String {
     if (!value.isFinite()) return "0"
-    return if (value % 1.0 == 0.0) {
-        value.toLong().toString()
+    if (value % 1.0 != 0.0) {
+        return String.format(Locale.US, "%.1f", value)
+    }
+    val asLong = value.toLong()
+    // 只有 Long 能精确表示时才走原来的整数显示，否则用 BigDecimal 展开真实数值
+    return if (asLong.toDouble() == value) {
+        asLong.toString()
     } else {
-        String.format(Locale.US, "%.1f", value)
+        BigDecimal(value).toBigInteger().toString()
     }
 }
 

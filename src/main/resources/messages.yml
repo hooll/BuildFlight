@@ -43,14 +43,28 @@ gui-material-lore:
   - "&f右键 &7存入 1 件"
   - "&fShift+左键 &7存入 64 件"
 
+gui-bundle-name: "&e{bundle} &7套餐"
+gui-bundle-lore:
+  - "&7套餐奖励: &a{points} &7点"
+gui-bundle-requirement-ok: "&7- &f{material} &7×&f{need} &8(拥有 &a{have}&8)"
+gui-bundle-requirement-lack: "&7- &f{material} &7×&f{need} &8(拥有 &c{have}&8)"
+gui-bundle-compare: "&7单件合计: &f{base} &7点"
+gui-bundle-bonus: "&7套餐加成: &a+{bonus} &7点 &8(+{percent}%)"
+gui-bundle-penalty: "&7比单件少: &c-{diff} &7点"
+gui-bundle-lore-footer:
+  - ""
+  - "&f左键 &7兑换 1 份"
+  - "&fShift+左键 &7兑换全部可凑齐份数"
+  - "&f右键 &7兑换 1 份"
+
 gui-loading-name: "&7能量数据加载中..."
 gui-loading-lore:
   - "&7请稍等片刻后重新打开面板"
 
-gui-no-materials-name: "&c暂无可兑换材料"
+gui-no-materials-name: "&c暂无可兑换内容"
 gui-no-materials-lore:
-  - "&7请在 config.yml 的"
-  - "&7exchange-materials 中添加材料"
+  - "&7请在 config.yml 的 exchange-materials"
+  - "&7或 bundles.yml 中添加套餐与材料"
 
 gui-page-prev-name: "&e← 上一页"
 gui-page-prev-lore:
@@ -65,6 +79,10 @@ gui-page-indicator-name: "&e第 &f{page}&7/&f{pages} &e页"
 gui-page-indicator-lore:
   - "&7共 &f{total} &7种可兑换材料"
   - "&7本页显示 &f{shown} &7种"
+# 面板同时包含套餐与材料后使用的新键；旧安装缺少它时会走代码默认值
+gui-offer-indicator-lore:
+  - "&7共 &f{total} &7项可兑换内容"
+  - "&7本页显示 &f{shown} &7项"
 
 status-loading: "&7数据加载中"
 status-failed: "&c数据加载失败"
@@ -95,6 +113,18 @@ player-only: "&c该指令只能由玩家执行。"
 reload-success: "&a配置与消息已重载。"
 reload-failed: "&c重载失败: &f{error}"
 
+bundle-success: "&a已兑换 &f{portions} &a份 &f{bundle}&a，获得 &e{points} &a点能量（当前 &e{energy}&a）。"
+bundle-not-enough: "&c材料不足，无法兑换 &f{bundle}&c。&7缺少: &f{missing}"
+bundle-failed: "&c兑换失败，物品已退回背包，请重试。"
+
+give-success: "&a已给予 &f{player} &e{points} &a点能量（当前 &e{energy}&a）。"
+give-received: "&a你获得了 &e{points} &a点建筑飞行能量（当前 &e{energy}&a）。"
+give-player-unknown: "&c找不到玩家 &f{player} &c（从未在本服出现过）。"
+give-lookup-failed: "&c解析玩家 &f{player} &c失败，未发放。"
+give-invalid-amount: "&c能量点数必须是大于 0 的数字: &f{input}"
+give-data-failed: "&c目标玩家 &f{player} &c的能量数据不可用，未发放。"
+give-save-failed: "&c向 &f{player} &c发放 &e{points} &c点能量失败，未写入数据库。"
+
 dominion-required: "&c只能在 Dominion 领地内开启建筑飞行。"
 dominion-not-member: "&c你必须是该领地的拥有者或成员才能在此飞行。"
 dominion-no-privilege: "&c你在当前领地没有飞行权限。"
@@ -106,4 +136,5 @@ dominion-missing: "&c服务器未安装或未启用 Dominion，建筑飞行暂�
 help:
   - "&b&lBuildFlight &7- 建筑飞行"
   - "&f/bflight &7或 &f/bf &7- 打开操作面板"
+  - "&f/bflight give <玩家> <点数> &7- 发放能量（管理员，支持离线）"
   - "&f/bflight reload &7- 重载配置（管理员）"
